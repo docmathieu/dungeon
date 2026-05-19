@@ -1,0 +1,665 @@
+"""
+Comprehensive unit tests for the dungeon game.
+
+Covers: Grid, TileType, GameState, DIRECTION_DELTA, Simulation.
+"""
+import queue
+import threading
+from unittest.mock import patch
+
+import pytest
+
+from grid import Grid, TileType
+from game_state import GameState, DIRECTION_DELTA
+from simulation import Simulation, REPAINT
+
+
+# ---------------------------------------------------------------------------
+# Shared helpers
+# ---------------------------------------------------------------------------
+
+class FakeGrid:
+    """All-grass 10×10 grid unless individual cells are overridden."""
+
+    WIDTH = 10
+    HEIGHT = 10
+
+    def __init__(self, overrides: dict | None = None):
+        self._overrides: dict[tuple[int, int], TileType] = overrides or {}
+
+    def get_tile(self, x: int, y: int) -> TileType:
+        return self._overrides.get((x, y), TileType.GRASS)
+
+    def is_passable(self, x: int, y: int) -> bool:
+        return self.get_tile(x, y) != TileType.ROCK
+
+    def move_cost(self, x: int, y: int) -> int:
+        return 2 if self.get_tile(x, y) == TileType.WATER else 1
+
+    def grass_cells(self) -> list:
+        return [
+            (x, y)
+            for y in range(self.HEIGHT)
+            for x in range(self.WIDTH)
+            if self.get_tile(x, y) == TileType.GRASS
+        ]
+
+
+def make_state(
+    char_pos: tuple = (5, 5),
+    exit_pos: tuple = (8, 8),
+    overrides: dict | None = None,
+) -> GameState:
+    """Build a GameState with fully-controlled positions and tile layout."""
+    state = GameState(FakeGrid(overrides), seed=0)
+    state.char_pos = char_pos
+    state.exit_pos = exit_pos
+    return state
+
+
+# ===========================================================================
+# TileType
+# ===========================================================================
+
+class TestTileType:
+    def test_enum_string_values(self):
+        assert TileType.GRASS.value == "grass"
+        assert TileType.ROCK.value == "rock"
+        assert TileType.WATER.value == "water"
+
+    def test_three_members(self):
+        assert len(list(TileType)) == 3
+
+    def test_distinct_members(self):
+        assert TileType.GRASS != TileType.ROCK
+        assert TileType.GRASS != TileType.WATER
+        assert TileType.ROCK != TileType.WATER
+
+
+# ===========================================================================
+# Grid — layout and distribution
+# ===========================================================================
+
+class TestGridLayout:
+    def test_total_cell_count(self):
+        assert len(Grid(seed=0)._cells) == 100
+
+    def test_rock_count_is_thirty(self):
+        assert Grid(seed=0)._cells.count(TileType.ROCK) == 30
+
+    def test_water_count_is_twenty(self):
+        assert Grid(seed=0)._cells.count(TileType.WATER) == 20
+
+    def test_grass_count_is_fifty(self):
+        assert Grid(seed=0)._cells.count(TileType.GRASS) == 50
+
+    def test_seeded_generation_is_deterministic(self):
+        assert Grid(seed=42)._cells == Grid(seed=42)._cells
+
+    def test_different_seeds_produce_different_layouts(self):
+        assert Grid(seed=1)._cells != Grid(seed=2)._cells
+
+    def test_no_seed_is_random(self):
+        # Without a fixed seed, repeated calls should usually differ.
+        results = {tuple(Grid()._cells) for _ in range(5)}
+        assert len(results) > 1
+
+    def test_dimensions_constants(self):
+        assert Grid.WIDTH == 10
+        assert Grid.HEIGHT == 10
+
+
+# ===========================================================================
+# Grid — index helper
+# ===========================================================================
+
+class TestGridIndex:
+    def setup_method(self):
+        self.g = Grid(seed=0)
+
+    def test_origin(self):
+        assert self.g._index(0, 0) == 0
+
+    def test_last_cell_in_first_row(self):
+        assert self.g._index(9, 0) == 9
+
+    def test_first_cell_in_second_row(self):
+        assert self.g._index(0, 1) == 10
+
+    def test_last_cell(self):
+        assert self.g._index(9, 9) == 99
+
+    def test_arbitrary_cell(self):
+        assert self.g._index(3, 2) == 23
+
+
+# ===========================================================================
+# Grid — tile accessors
+# ===========================================================================
+
+class TestGridGetTile:
+    def setup_method(self):
+        self.g = Grid(seed=0)
+
+    def test_returns_tile_type(self):
+        assert isinstance(self.g.get_tile(0, 0), TileType)
+
+    def test_all_cells_are_valid_tile_types(self):
+        valid = set(TileType)
+        for y in range(Grid.HEIGHT):
+            for x in range(Grid.WIDTH):
+                assert self.g.get_tile(x, y) in valid
+
+
+class TestGridPassability:
+    def setup_method(self):
+        self.g = Grid(seed=0)
+
+    def _first_cell_of(self, tile: TileType):
+        for y in range(Grid.HEIGHT):
+            for x in range(Grid.WIDTH):
+                if self.g.get_tile(x, y) == tile:
+                    return x, y
+        pytest.skip(f"No {tile} cell found in test grid")
+
+    def test_grass_is_passable(self):
+        assert self.g.is_passable(*self._first_cell_of(TileType.GRASS)) is True
+
+    def test_water_is_passable(self):
+        assert self.g.is_passable(*self._first_cell_of(TileType.WATER)) is True
+
+    def test_rock_is_not_passable(self):
+        assert self.g.is_passable(*self._first_cell_of(TileType.ROCK)) is False
+
+
+class TestGridMoveCost:
+    def setup_method(self):
+        self.g = Grid(seed=0)
+
+    def _first_cell_of(self, tile: TileType):
+        for y in range(Grid.HEIGHT):
+            for x in range(Grid.WIDTH):
+                if self.g.get_tile(x, y) == tile:
+                    return x, y
+        pytest.skip(f"No {tile} cell found in test grid")
+
+    def test_grass_costs_one(self):
+        assert self.g.move_cost(*self._first_cell_of(TileType.GRASS)) == 1
+
+    def test_water_costs_two(self):
+        assert self.g.move_cost(*self._first_cell_of(TileType.WATER)) == 2
+
+    def test_rock_costs_one(self):
+        # move_cost is defined for any tile; rock costs 1 (but is impassable)
+        assert self.g.move_cost(*self._first_cell_of(TileType.ROCK)) == 1
+
+
+class TestGridGrassCells:
+    def setup_method(self):
+        self.g = Grid(seed=0)
+
+    def test_all_returned_cells_are_grass(self):
+        for x, y in self.g.grass_cells():
+            assert self.g.get_tile(x, y) == TileType.GRASS
+
+    def test_count_matches_grass_in_cells(self):
+        assert len(self.g.grass_cells()) == self.g._cells.count(TileType.GRASS)
+
+    def test_coordinates_in_bounds(self):
+        for x, y in self.g.grass_cells():
+            assert 0 <= x < Grid.WIDTH
+            assert 0 <= y < Grid.HEIGHT
+
+    def test_no_rock_or_water_included(self):
+        for x, y in self.g.grass_cells():
+            assert self.g.get_tile(x, y) not in (TileType.ROCK, TileType.WATER)
+
+
+# ===========================================================================
+# GameState — initialisation
+# ===========================================================================
+
+class TestGameStateInit:
+    def test_initial_move_count_is_zero(self):
+        assert GameState(FakeGrid(), seed=0).move_count == 0
+
+    def test_initial_score_is_zero(self):
+        assert GameState(FakeGrid(), seed=0).score == 0
+
+    def test_initial_info_is_empty(self):
+        assert GameState(FakeGrid(), seed=0).info == ""
+
+    def test_initial_won_is_false(self):
+        assert GameState(FakeGrid(), seed=0).won is False
+
+    def test_char_placed_on_grass(self):
+        grid = FakeGrid()
+        state = GameState(grid, seed=0)
+        assert grid.get_tile(*state.char_pos) == TileType.GRASS
+
+    def test_exit_placed_on_grass(self):
+        grid = FakeGrid()
+        state = GameState(grid, seed=0)
+        assert grid.get_tile(*state.exit_pos) == TileType.GRASS
+
+    def test_char_and_exit_at_different_positions(self):
+        state = GameState(FakeGrid(), seed=0)
+        assert state.char_pos != state.exit_pos
+
+    def test_positions_are_within_bounds(self):
+        state = GameState(FakeGrid(), seed=0)
+        for pos in (state.char_pos, state.exit_pos):
+            x, y = pos
+            assert 0 <= x < FakeGrid.WIDTH
+            assert 0 <= y < FakeGrid.HEIGHT
+
+    def test_seeded_positions_are_deterministic(self):
+        s1 = GameState(FakeGrid(), seed=7)
+        s2 = GameState(FakeGrid(), seed=7)
+        assert s1.char_pos == s2.char_pos
+        assert s1.exit_pos == s2.exit_pos
+
+    def test_raises_when_only_one_grass_cell(self):
+        overrides = {(x, y): TileType.ROCK for y in range(10) for x in range(10)}
+        overrides[(0, 0)] = TileType.GRASS
+        with pytest.raises(ValueError, match="Not enough grass"):
+            GameState(FakeGrid(overrides), seed=0)
+
+    def test_raises_when_no_grass_cells(self):
+        overrides = {(x, y): TileType.ROCK for y in range(10) for x in range(10)}
+        with pytest.raises(ValueError):
+            GameState(FakeGrid(overrides), seed=0)
+
+
+# ===========================================================================
+# DIRECTION_DELTA
+# ===========================================================================
+
+class TestDirectionDelta:
+    def test_left(self):
+        assert DIRECTION_DELTA["LEFT"] == (-1, 0)
+
+    def test_right(self):
+        assert DIRECTION_DELTA["RIGHT"] == (1, 0)
+
+    def test_up(self):
+        assert DIRECTION_DELTA["UP"] == (0, -1)
+
+    def test_down(self):
+        assert DIRECTION_DELTA["DOWN"] == (0, 1)
+
+    def test_four_directions_defined(self):
+        assert len(DIRECTION_DELTA) == 4
+
+
+# ===========================================================================
+# GameState — movement directions
+# ===========================================================================
+
+class TestApplyMoveDirections:
+    def test_move_right(self):
+        state = make_state(char_pos=(3, 5))
+        state.apply_move("RIGHT")
+        assert state.char_pos == (4, 5)
+
+    def test_move_left(self):
+        state = make_state(char_pos=(3, 5))
+        state.apply_move("LEFT")
+        assert state.char_pos == (2, 5)
+
+    def test_move_up(self):
+        state = make_state(char_pos=(3, 5))
+        state.apply_move("UP")
+        assert state.char_pos == (3, 4)
+
+    def test_move_down(self):
+        state = make_state(char_pos=(3, 5))
+        state.apply_move("DOWN")
+        assert state.char_pos == (3, 6)
+
+    def test_lowercase_direction(self):
+        state = make_state(char_pos=(3, 5))
+        state.apply_move("right")
+        assert state.char_pos == (4, 5)
+
+    def test_mixed_case_direction(self):
+        state = make_state(char_pos=(3, 5))
+        state.apply_move("Right")
+        assert state.char_pos == (4, 5)
+
+    def test_invalid_direction_does_not_move(self):
+        state = make_state(char_pos=(3, 5))
+        state.apply_move("DIAGONAL")
+        assert state.char_pos == (3, 5)
+
+    def test_invalid_direction_does_not_count(self):
+        state = make_state(char_pos=(3, 5))
+        state.apply_move("INVALID")
+        assert state.move_count == 0
+
+    def test_empty_string_direction(self):
+        state = make_state(char_pos=(3, 5))
+        state.apply_move("")
+        assert state.char_pos == (3, 5)
+        assert state.move_count == 0
+
+
+# ===========================================================================
+# GameState — move cost accumulation
+# ===========================================================================
+
+class TestApplyMoveCost:
+    def test_grass_move_costs_one(self):
+        state = make_state(char_pos=(3, 5))
+        state.apply_move("RIGHT")  # (4,5) defaults to GRASS
+        assert state.move_count == 1
+
+    def test_water_move_costs_two(self):
+        state = make_state(char_pos=(3, 5), overrides={(4, 5): TileType.WATER})
+        state.apply_move("RIGHT")
+        assert state.move_count == 2
+
+    def test_two_grass_moves_accumulate(self):
+        state = make_state(char_pos=(1, 5))
+        state.apply_move("RIGHT")  # -> (2,5) grass +1
+        state.apply_move("RIGHT")  # -> (3,5) grass +1
+        assert state.move_count == 2
+
+    def test_mixed_terrain_accumulates_correctly(self):
+        state = make_state(
+            char_pos=(1, 5),
+            overrides={(2, 5): TileType.WATER},
+        )
+        state.apply_move("RIGHT")  # -> (2,5) water +2
+        state.apply_move("RIGHT")  # -> (3,5) grass +1
+        assert state.move_count == 3
+
+    def test_blocked_move_does_not_count(self):
+        state = make_state(char_pos=(3, 5), overrides={(4, 5): TileType.ROCK})
+        state.apply_move("RIGHT")
+        assert state.move_count == 0
+
+
+# ===========================================================================
+# GameState — boundary blocking
+# ===========================================================================
+
+class TestApplyMoveBoundary:
+    def test_left_boundary(self):
+        state = make_state(char_pos=(0, 5))
+        state.apply_move("LEFT")
+        assert state.char_pos == (0, 5)
+        assert state.move_count == 0
+
+    def test_right_boundary(self):
+        state = make_state(char_pos=(9, 5))
+        state.apply_move("RIGHT")
+        assert state.char_pos == (9, 5)
+        assert state.move_count == 0
+
+    def test_top_boundary(self):
+        state = make_state(char_pos=(5, 0))
+        state.apply_move("UP")
+        assert state.char_pos == (5, 0)
+        assert state.move_count == 0
+
+    def test_bottom_boundary(self):
+        state = make_state(char_pos=(5, 9))
+        state.apply_move("DOWN")
+        assert state.char_pos == (5, 9)
+        assert state.move_count == 0
+
+    def test_corner_top_left(self):
+        state = make_state(char_pos=(0, 0))
+        state.apply_move("UP")
+        state.apply_move("LEFT")
+        assert state.char_pos == (0, 0)
+
+    def test_corner_bottom_right(self):
+        state = make_state(char_pos=(9, 9))
+        state.apply_move("DOWN")
+        state.apply_move("RIGHT")
+        assert state.char_pos == (9, 9)
+
+
+# ===========================================================================
+# GameState — rock blocking
+# ===========================================================================
+
+class TestApplyMoveRock:
+    def test_blocked_by_adjacent_rock(self):
+        state = make_state(char_pos=(3, 5), overrides={(4, 5): TileType.ROCK})
+        state.apply_move("RIGHT")
+        assert state.char_pos == (3, 5)
+        assert state.move_count == 0
+
+    def test_rock_above(self):
+        state = make_state(char_pos=(3, 5), overrides={(3, 4): TileType.ROCK})
+        state.apply_move("UP")
+        assert state.char_pos == (3, 5)
+
+    def test_surrounded_by_rocks_no_movement(self):
+        overrides = {
+            (4, 5): TileType.ROCK,
+            (2, 5): TileType.ROCK,
+            (3, 4): TileType.ROCK,
+            (3, 6): TileType.ROCK,
+        }
+        state = make_state(char_pos=(3, 5), overrides=overrides)
+        for direction in ("RIGHT", "LEFT", "UP", "DOWN"):
+            state.apply_move(direction)
+        assert state.char_pos == (3, 5)
+        assert state.move_count == 0
+
+
+# ===========================================================================
+# GameState — win condition
+# ===========================================================================
+
+class TestWinCondition:
+    def test_reaching_exit_sets_won(self):
+        state = make_state(char_pos=(4, 5), exit_pos=(5, 5))
+        state.apply_move("RIGHT")
+        assert state.won is True
+
+    def test_reaching_exit_sets_score_to_one(self):
+        state = make_state(char_pos=(4, 5), exit_pos=(5, 5))
+        state.apply_move("RIGHT")
+        assert state.score == 1
+
+    def test_reaching_exit_sets_info_to_gagne(self):
+        state = make_state(char_pos=(4, 5), exit_pos=(5, 5))
+        state.apply_move("RIGHT")
+        assert state.info == "GAGNE"
+
+    def test_char_is_at_exit_after_win(self):
+        state = make_state(char_pos=(4, 5), exit_pos=(5, 5))
+        state.apply_move("RIGHT")
+        assert state.char_pos == state.exit_pos
+
+    def test_not_won_before_reaching_exit(self):
+        state = make_state(char_pos=(3, 5), exit_pos=(5, 5))
+        state.apply_move("RIGHT")  # -> (4,5), not exit
+        assert state.won is False
+        assert state.score == 0
+        assert state.info == ""
+
+    def test_no_move_applied_after_win(self):
+        state = make_state(char_pos=(4, 5), exit_pos=(5, 5))
+        state.apply_move("RIGHT")  # wins
+        pos_after = state.char_pos
+        count_after = state.move_count
+        state.apply_move("RIGHT")  # should be ignored
+        assert state.char_pos == pos_after
+        assert state.move_count == count_after
+
+    def test_no_score_change_after_win(self):
+        state = make_state(char_pos=(4, 5), exit_pos=(5, 5))
+        state.apply_move("RIGHT")
+        state.apply_move("DOWN")
+        assert state.score == 1
+
+    def test_win_via_water_tile(self):
+        state = make_state(
+            char_pos=(4, 5),
+            exit_pos=(5, 5),
+            overrides={(5, 5): TileType.WATER},
+        )
+        state.apply_move("RIGHT")
+        assert state.won is True
+        assert state.move_count == 2  # water costs 2
+
+
+# ===========================================================================
+# Simulation._parse
+# ===========================================================================
+
+class TestSimulationParse:
+    def test_all_four_arrows(self):
+        assert Simulation._parse("←↑→↓") == ["LEFT", "UP", "RIGHT", "DOWN"]
+
+    def test_ignores_non_arrow_characters(self):
+        assert Simulation._parse("a←b↓c") == ["LEFT", "DOWN"]
+
+    def test_empty_string(self):
+        assert Simulation._parse("") == []
+
+    def test_no_arrows(self):
+        assert Simulation._parse("hello world 123") == []
+
+    def test_repeated_same_arrow(self):
+        assert Simulation._parse("→→→") == ["RIGHT", "RIGHT", "RIGHT"]
+
+    def test_order_preserved(self):
+        assert Simulation._parse("↓←↑→") == ["DOWN", "LEFT", "UP", "RIGHT"]
+
+    def test_spaces_ignored(self):
+        assert Simulation._parse("← →") == ["LEFT", "RIGHT"]
+
+
+# ===========================================================================
+# Simulation — headless (no queue)
+# ===========================================================================
+
+class TestSimulationHeadless:
+    def test_applies_all_moves(self):
+        state = make_state(char_pos=(3, 5))
+        Simulation(state, "→→", ui_queue=None).run()
+        assert state.char_pos == (5, 5)
+        assert state.move_count == 2
+
+    def test_no_instructions_no_movement(self):
+        state = make_state(char_pos=(3, 5))
+        Simulation(state, "", ui_queue=None).run()
+        assert state.char_pos == (3, 5)
+        assert state.move_count == 0
+
+    def test_stops_on_win(self):
+        state = make_state(char_pos=(4, 5), exit_pos=(5, 5))
+        Simulation(state, "→→→", ui_queue=None).run()
+        assert state.won is True
+        assert state.move_count == 1  # won on first move, rest ignored
+
+    def test_rock_blocks_move(self):
+        state = make_state(char_pos=(3, 5), overrides={(4, 5): TileType.ROCK})
+        Simulation(state, "→", ui_queue=None).run()
+        assert state.char_pos == (3, 5)
+
+    def test_non_arrow_characters_produce_no_moves(self):
+        state = make_state(char_pos=(3, 5))
+        Simulation(state, "abcde", ui_queue=None).run()
+        assert state.char_pos == (3, 5)
+        assert state.move_count == 0
+
+    def test_water_tile_costs_two(self):
+        state = make_state(char_pos=(3, 5), overrides={(4, 5): TileType.WATER})
+        Simulation(state, "→", ui_queue=None).run()
+        assert state.move_count == 2
+
+
+# ===========================================================================
+# Simulation — stop event
+# ===========================================================================
+
+class TestSimulationStop:
+    def test_stop_method_sets_event(self):
+        state = make_state()
+        sim = Simulation(state, "", ui_queue=None)
+        assert not sim._stop_event.is_set()
+        sim.stop()
+        assert sim._stop_event.is_set()
+
+    def test_pre_stopped_simulation_applies_no_moves(self):
+        state = make_state(char_pos=(0, 5))
+        sim = Simulation(state, "→" * 9, ui_queue=None)
+        sim._stop_event.set()
+        sim.run()
+        assert state.char_pos == (0, 5)
+
+    def test_stop_before_start_applies_no_moves(self):
+        """Stopping before run() starts means the loop body is never entered."""
+        state = make_state(char_pos=(0, 5))
+        sim = Simulation(state, "→" * 9, ui_queue=None)
+        sim.stop()
+        sim.run()
+        assert state.char_pos == (0, 5)
+        assert state.move_count == 0
+
+
+# ===========================================================================
+# Simulation — queue (UI repaint)
+# ===========================================================================
+
+class TestSimulationQueue:
+    def test_repaint_constant_value(self):
+        assert REPAINT == "repaint"
+
+    def test_queue_receives_one_repaint_per_move(self):
+        state = make_state(char_pos=(3, 5))
+        q = queue.Queue()
+        with patch("simulation.time.sleep"):
+            Simulation(state, "→→", ui_queue=q).run()
+        items = list(q.queue)
+        assert items == [REPAINT, REPAINT]
+
+    def test_no_repaint_when_queue_is_none(self):
+        state = make_state(char_pos=(3, 5))
+        # Should not raise even though there is no queue to put into.
+        Simulation(state, "→", ui_queue=None).run()
+
+    def test_no_repaint_after_win(self):
+        """Win on first move; the two remaining moves should not emit repaint."""
+        state = make_state(char_pos=(4, 5), exit_pos=(5, 5))
+        q = queue.Queue()
+        with patch("simulation.time.sleep"):
+            Simulation(state, "→→→", ui_queue=q).run()
+        assert q.qsize() == 1
+
+    def test_sleep_called_per_move_when_queue_provided(self):
+        state = make_state(char_pos=(3, 5))
+        q = queue.Queue()
+        with patch("simulation.time.sleep") as mock_sleep:
+            Simulation(state, "→→", ui_queue=q).run()
+        assert mock_sleep.call_count == 2
+        mock_sleep.assert_called_with(0.5)
+
+    def test_sleep_not_called_without_queue(self):
+        state = make_state(char_pos=(3, 5))
+        with patch("simulation.time.sleep") as mock_sleep:
+            Simulation(state, "→→", ui_queue=None).run()
+        mock_sleep.assert_not_called()
+
+    def test_is_daemon_thread(self):
+        state = make_state()
+        sim = Simulation(state, "", ui_queue=None)
+        assert sim.daemon is True
+
+    def test_run_as_thread_completes(self):
+        state = make_state(char_pos=(3, 5))
+        q = queue.Queue()
+        with patch("simulation.time.sleep"):
+            sim = Simulation(state, "→", ui_queue=q)
+            sim.start()
+            sim.join(timeout=2)
+        assert not sim.is_alive()
+        assert state.char_pos == (4, 5)

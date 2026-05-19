@@ -1,0 +1,53 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "🎮 Setup — Créer venv et installer dépendances",
+      "type": "shell",
+      "command": "py -3.12 -m venv .venv && .venv\\Scripts\\pip install -r requirements.txt",
+      "group": "build",
+      "presentation": { "reveal": "always", "panel": "shared" },
+      "problemMatcher": []
+    },
+    {
+      "label": "🧩 Generate Game — Générer src/ (Claude Code)",
+      "type": "shell",
+      "command": ".venv\\Scripts\\python run_skill.py .claude/skills/generate-game.md",
+      "group": "build",
+      "presentation": { "reveal": "always", "panel": "shared" },
+      "problemMatcher": []
+    },
+    {
+      "label": "🧪 Generate Tests — Générer tests/test_game.py (Claude Code)",
+      "type": "shell",
+      "command": ".venv\\Scripts\\python run_skill.py .claude/skills/generate-tests.md",
+      "group": "test",
+      "presentation": { "reveal": "always", "panel": "shared" },
+      "problemMatcher": []
+    },
+    {
+      "label": "✅ Run Tests — Lancer pytest",
+      "type": "shell",
+      "command": ".venv\\Scripts\\pytest tests/ -v",
+      "group": { "kind": "test", "isDefault": true },
+      "presentation": { "reveal": "always", "panel": "shared" },
+      "problemMatcher": []
+    },
+    {
+      "label": "▶️  Run Game — Démarrer le jeu",
+      "type": "shell",
+      "command": ".venv\\Scripts\\python src/main.py",
+      "group": { "kind": "build", "isDefault": true },
+      "presentation": { "reveal": "always", "panel": "shared" },
+      "problemMatcher": []
+    },
+    {
+      "label": "📦 Build EXE — Produire dist/dungeon.exe (Claude Code)",
+      "type": "shell",
+      "command": ".venv\\Scripts\\python run_skill.py .claude/skills/build-exe.md",
+      "group": "build",
+      "presentation": { "reveal": "always", "panel": "shared" },
+      "problemMatcher": []
+    }
+  ]
+}

@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Write(src/**)",
+      "Write(tests/**)",
+      "Edit(src/**)",
+      "Edit(tests/**)",
+      "Bash(mkdir*)",
+      "Bash(python*)",
+      "Bash(pytest*)",
+      "Bash(.venv/Scripts/python*)"
+    ]
+  }
+}

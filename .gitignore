@@ -1,0 +1,20 @@
+# Environnement virtuel Python
+.venv/
+
+# PyInstaller
+dist/
+build/
+*.spec
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+
+# VSCode
+.vscode/settings.json
+
+# Pytest
+.pytest_cache/
+.coverage
+htmlcov/
