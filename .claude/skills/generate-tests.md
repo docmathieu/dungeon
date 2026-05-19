@@ -22,6 +22,9 @@ Test only pure-logic classes (Grid, GameState). Do NOT import pygame in tests �
 - `test_move_out_of_bounds`: moving off grid edges leaves position unchanged
 - `test_win_condition`: when character moves onto exit cell → score=1, info="GAGNE"
 - `test_no_move_after_win`: further moves after win have no effect
+- `test_lose_condition`: sequence ends without reaching exit → score=0, info="PERDU"
+- `test_no_perdu_when_stopped`: manually stopped simulation does NOT set "PERDU"
+- `test_no_perdu_when_won`: won simulation does NOT set "PERDU"
 - `test_deplacement_counter`: counter accumulates correctly over a sequence of moves
 
 ### Restart test

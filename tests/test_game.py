@@ -578,6 +578,58 @@ class TestSimulationHeadless:
 
 
 # ===========================================================================
+# Simulation — lose condition
+# ===========================================================================
+
+class TestSimulationLoseCondition:
+    def test_info_is_perdu_when_sequence_ends_without_win(self):
+        state = make_state(char_pos=(3, 5), exit_pos=(8, 8))
+        Simulation(state, "→", ui_queue=None).run()
+        assert state.info == "PERDU"
+
+    def test_score_is_zero_when_sequence_ends_without_win(self):
+        state = make_state(char_pos=(3, 5), exit_pos=(8, 8))
+        Simulation(state, "→", ui_queue=None).run()
+        assert state.score == 0
+
+    def test_no_perdu_when_sequence_is_empty(self):
+        state = make_state(char_pos=(3, 5), exit_pos=(8, 8))
+        Simulation(state, "", ui_queue=None).run()
+        assert state.info == "PERDU"
+        assert state.score == 0
+
+    def test_no_perdu_when_won(self):
+        state = make_state(char_pos=(4, 5), exit_pos=(5, 5))
+        Simulation(state, "→→→", ui_queue=None).run()
+        assert state.info == "GAGNE"
+        assert state.score == 1
+
+    def test_no_perdu_when_stopped(self):
+        state = make_state(char_pos=(3, 5), exit_pos=(8, 8))
+        sim = Simulation(state, "→→→", ui_queue=None)
+        sim.stop()
+        sim.run()
+        assert state.info == ""
+        assert state.score == 0
+
+    def test_perdu_repaint_sent_to_queue(self):
+        state = make_state(char_pos=(3, 5), exit_pos=(8, 8))
+        q = queue.Queue()
+        with patch("simulation.time.sleep"):
+            Simulation(state, "→", ui_queue=q).run()
+        # last item in queue is the PERDU repaint
+        items = list(q.queue)
+        assert items[-1] == REPAINT
+        assert state.info == "PERDU"
+
+    def test_no_extra_repaint_when_queue_is_none(self):
+        state = make_state(char_pos=(3, 5), exit_pos=(8, 8))
+        # should not raise even without a queue
+        Simulation(state, "→", ui_queue=None).run()
+        assert state.info == "PERDU"
+
+
+# ===========================================================================
 # Simulation — stop event
 # ===========================================================================
 
@@ -614,13 +666,14 @@ class TestSimulationQueue:
     def test_repaint_constant_value(self):
         assert REPAINT == "repaint"
 
-    def test_queue_receives_one_repaint_per_move(self):
+    def test_queue_receives_one_repaint_per_move_plus_one_for_lose(self):
         state = make_state(char_pos=(3, 5))
         q = queue.Queue()
         with patch("simulation.time.sleep"):
             Simulation(state, "→→", ui_queue=q).run()
         items = list(q.queue)
-        assert items == [REPAINT, REPAINT]
+        # 2 moves + 1 extra repaint for PERDU at end of sequence
+        assert items == [REPAINT, REPAINT, REPAINT]
 
     def test_no_repaint_when_queue_is_none(self):
         state = make_state(char_pos=(3, 5))
