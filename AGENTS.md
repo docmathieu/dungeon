@@ -14,7 +14,7 @@ Génère le code source complet du jeu selon la spécification dans CLAUDE.md.
 - Cases herbe/pierre/eau avec répartition aléatoire
 - Personnage et sortie jaunes positionnés sur cases herbe
 - Interface complète (labels, input "instruct", boutons "start" et "restart")
-- Simulation avec pause 0.5s, compteur déplacements, détection victoire
+- Simulation avec pause 0.3s, compteur déplacements, détection victoire
 
 Structure de fichiers produite :
 ```

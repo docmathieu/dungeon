@@ -1,11 +1,5 @@
 import heapq
-
-DIRECTIONS: dict[str, tuple[int, int]] = {
-    "UP":    ( 0, -1),
-    "DOWN":  ( 0,  1),
-    "LEFT":  (-1,  0),
-    "RIGHT": ( 1,  0),
-}
+from directions import DIRECTIONS
 
 
 class PathFinder:

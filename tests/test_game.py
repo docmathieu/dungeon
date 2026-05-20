@@ -10,40 +10,23 @@ from unittest.mock import patch
 import pytest
 
 from grid import Grid, TileType
-from game_state import GameState, DIRECTION_DELTA
+from directions import DIRECTIONS
+from game_state import GameState
 from simulation import Simulation, REPAINT
 from pathfinder import PathFinder
+from helpers import FakeGrid
 
 
 # ---------------------------------------------------------------------------
 # Shared helpers
 # ---------------------------------------------------------------------------
 
-class FakeGrid:
-    """All-grass 10×10 grid unless individual cells are overridden."""
-
-    WIDTH = 10
-    HEIGHT = 10
-
-    def __init__(self, overrides: dict | None = None):
-        self._overrides: dict[tuple[int, int], TileType] = overrides or {}
-
-    def get_tile(self, x: int, y: int) -> TileType:
-        return self._overrides.get((x, y), TileType.GRASS)
-
-    def is_passable(self, x: int, y: int) -> bool:
-        return self.get_tile(x, y) != TileType.ROCK
-
-    def move_cost(self, x: int, y: int) -> int:
-        return 2 if self.get_tile(x, y) == TileType.WATER else 1
-
-    def grass_cells(self) -> list:
-        return [
-            (x, y)
-            for y in range(self.HEIGHT)
-            for x in range(self.WIDTH)
-            if self.get_tile(x, y) == TileType.GRASS
-        ]
+def _first_cell_of(grid, tile: TileType) -> tuple[int, int]:
+    for y in range(Grid.HEIGHT):
+        for x in range(Grid.WIDTH):
+            if grid.get_tile(x, y) == tile:
+                return x, y
+    pytest.skip(f"No {tile} cell found in test grid")
 
 
 def make_state(
@@ -158,43 +141,29 @@ class TestGridPassability:
     def setup_method(self):
         self.g = Grid(seed=0)
 
-    def _first_cell_of(self, tile: TileType):
-        for y in range(Grid.HEIGHT):
-            for x in range(Grid.WIDTH):
-                if self.g.get_tile(x, y) == tile:
-                    return x, y
-        pytest.skip(f"No {tile} cell found in test grid")
-
     def test_grass_is_passable(self):
-        assert self.g.is_passable(*self._first_cell_of(TileType.GRASS)) is True
+        assert self.g.is_passable(*_first_cell_of(self.g, TileType.GRASS)) is True
 
     def test_water_is_passable(self):
-        assert self.g.is_passable(*self._first_cell_of(TileType.WATER)) is True
+        assert self.g.is_passable(*_first_cell_of(self.g, TileType.WATER)) is True
 
     def test_rock_is_not_passable(self):
-        assert self.g.is_passable(*self._first_cell_of(TileType.ROCK)) is False
+        assert self.g.is_passable(*_first_cell_of(self.g, TileType.ROCK)) is False
 
 
 class TestGridMoveCost:
     def setup_method(self):
         self.g = Grid(seed=0)
 
-    def _first_cell_of(self, tile: TileType):
-        for y in range(Grid.HEIGHT):
-            for x in range(Grid.WIDTH):
-                if self.g.get_tile(x, y) == tile:
-                    return x, y
-        pytest.skip(f"No {tile} cell found in test grid")
-
     def test_grass_costs_one(self):
-        assert self.g.move_cost(*self._first_cell_of(TileType.GRASS)) == 1
+        assert self.g.move_cost(*_first_cell_of(self.g, TileType.GRASS)) == 1
 
     def test_water_costs_two(self):
-        assert self.g.move_cost(*self._first_cell_of(TileType.WATER)) == 2
+        assert self.g.move_cost(*_first_cell_of(self.g, TileType.WATER)) == 2
 
     def test_rock_costs_one(self):
         # move_cost is defined for any tile; rock costs 1 (but is impassable)
-        assert self.g.move_cost(*self._first_cell_of(TileType.ROCK)) == 1
+        assert self.g.move_cost(*_first_cell_of(self.g, TileType.ROCK)) == 1
 
 
 class TestGridGrassCells:
@@ -278,21 +247,21 @@ class TestGameStateInit:
 # DIRECTION_DELTA
 # ===========================================================================
 
-class TestDirectionDelta:
+class TestDirections:
     def test_left(self):
-        assert DIRECTION_DELTA["LEFT"] == (-1, 0)
+        assert DIRECTIONS["LEFT"] == (-1, 0)
 
     def test_right(self):
-        assert DIRECTION_DELTA["RIGHT"] == (1, 0)
+        assert DIRECTIONS["RIGHT"] == (1, 0)
 
     def test_up(self):
-        assert DIRECTION_DELTA["UP"] == (0, -1)
+        assert DIRECTIONS["UP"] == (0, -1)
 
     def test_down(self):
-        assert DIRECTION_DELTA["DOWN"] == (0, 1)
+        assert DIRECTIONS["DOWN"] == (0, 1)
 
     def test_four_directions_defined(self):
-        assert len(DIRECTION_DELTA) == 4
+        assert len(DIRECTIONS) == 4
 
 
 # ===========================================================================
@@ -697,7 +666,7 @@ class TestSimulationQueue:
         with patch("simulation.time.sleep") as mock_sleep:
             Simulation(state, "→→", ui_queue=q).run()
         assert mock_sleep.call_count == 2
-        mock_sleep.assert_called_with(0.5)
+        mock_sleep.assert_called_with(0.3)
 
     def test_sleep_not_called_without_queue(self):
         state = make_state(char_pos=(3, 5))

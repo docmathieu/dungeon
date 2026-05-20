@@ -6,6 +6,10 @@ Read `src/game.py` to understand the exact class/method signatures, then create 
 
 Test only pure-logic classes (Grid, GameState). Do NOT import pygame in tests — if needed, mock `pygame` at module level with `unittest.mock`.
 
+## Shared test utilities (`tests/helpers.py`)
+- `FakeGrid`: all-grass 10×10 grid with per-cell overrides. Implements `get_tile`, `is_passable`, `move_cost`, `grass_cells`. Import it with `from helpers import FakeGrid`; do NOT redefine it in individual test files.
+- `DIRECTIONS` is available via `from directions import DIRECTIONS`; do NOT define a local `DELTA` or similar constant.
+
 ### Grid tests
 - `test_grid_tile_counts`: verify ~30% ROCK, ~20% WATER (±5% tolerance for randomness, run 10 grid instances)
 - `test_grid_rock_impassable`: ROCK tiles must return False for passability

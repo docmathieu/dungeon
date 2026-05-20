@@ -1,14 +1,7 @@
 import random
+from directions import DIRECTIONS
 from grid import Grid
 from pathfinder import PathFinder
-
-
-DIRECTION_DELTA: dict[str, tuple[int, int]] = {
-    "LEFT":  (-1,  0),
-    "RIGHT": ( 1,  0),
-    "UP":    ( 0, -1),
-    "DOWN":  ( 0,  1),
-}
 
 
 class GameState:
@@ -57,7 +50,7 @@ class GameState:
         if self.won:
             return
 
-        delta = DIRECTION_DELTA.get(direction.upper())
+        delta = DIRECTIONS.get(direction.upper())
         if delta is None:
             return
 

@@ -2,40 +2,21 @@
 import pytest
 
 from grid import TileType
+from directions import DIRECTIONS
 from pathfinder import PathFinder
+from helpers import FakeGrid
 
 
 # ---------------------------------------------------------------------------
 # Shared helpers
 # ---------------------------------------------------------------------------
 
-class FakeGrid:
-    """All-grass 10×10 grid; individual cells can be overridden."""
-    WIDTH = 10
-    HEIGHT = 10
-
-    def __init__(self, overrides: dict | None = None):
-        self._overrides: dict[tuple[int, int], TileType] = overrides or {}
-
-    def get_tile(self, x: int, y: int) -> TileType:
-        return self._overrides.get((x, y), TileType.GRASS)
-
-    def is_passable(self, x: int, y: int) -> bool:
-        return self.get_tile(x, y) != TileType.ROCK
-
-    def move_cost(self, x: int, y: int) -> int:
-        return 2 if self.get_tile(x, y) == TileType.WATER else 1
-
-
-DELTA = {"UP": (0, -1), "DOWN": (0, 1), "LEFT": (-1, 0), "RIGHT": (1, 0)}
-
-
 def walk(grid, start: tuple[int, int], moves: list[str]) -> tuple[tuple[int, int], int]:
     """Simulate moves on a grid; return (final_pos, total_cost)."""
     x, y = start
     cost = 0
     for m in moves:
-        dx, dy = DELTA[m]
+        dx, dy = DIRECTIONS[m]
         nx, ny = x + dx, y + dy
         cost += grid.move_cost(nx, ny)
         x, y = nx, ny

@@ -8,7 +8,7 @@ Ce POC est la première étape vers un système d'**apprentissage par renforceme
 ## Deux modes d'exécution
 | Mode | Usage | Queue | Pause |
 |------|-------|-------|-------|
-| UI | Jeu interactif pygame | `queue.Queue` fournie | 0.5s |
+| UI | Jeu interactif pygame | `queue.Queue` fournie | 0.3s |
 | Headless | Entraînement RL, tests | `None` | Aucune |
 
 ## Stack technique
@@ -69,7 +69,7 @@ dungeon/claude/
 
 ### Simulation
 - Déplacement séquentiel selon la séquence "instruct"
-- Pause 0.5s entre chaque déplacement
+- Pause 0.3s entre chaque déplacement
 - Mise à jour du champ "déplacements" à chaque pas
 - Victoire si personnage == sortie → note=1, Information="GAGNE", séquence stoppée
 

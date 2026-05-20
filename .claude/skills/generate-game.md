@@ -5,6 +5,10 @@ Read CLAUDE.md for the full specification, then create `src/game.py` with the fo
 ## Architecture
 Produce the following files under `src/`:
 
+**`src/directions.py`** — no pygame import
+- Module-level constant `DIRECTIONS: dict[str, tuple[int,int]]` mapping `"LEFT"/"RIGHT"/"UP"/"DOWN"` to `(dx, dy)`.
+- Imported by `game_state.py` and `pathfinder.py`; do NOT redefine locally in either.
+
 **`src/grid.py`** — no pygame import
 - `TileType` (enum): GRASS, ROCK, WATER
 - `Grid`: generates the 10×10 tile map (30% ROCK, 20% WATER, rest GRASS). Methods: `get_tile(x,y)`, `is_passable(x,y)`, `move_cost(x,y)`.
@@ -26,7 +30,7 @@ Produce the following files under `src/`:
 **`src/simulation.py`** — no pygame import
 - `Simulation`: takes a `GameState`, an instruction string, and an optional `queue.Queue` (default `None`).
 - Runs as a `threading.Thread`.
-- If `queue` is provided (UI mode): pauses 0.5s between moves, puts a repaint signal in the queue after each move.
+- If `queue` is provided (UI mode): pauses 0.3s between moves, puts a repaint signal in the queue after each move.
 - If `queue` is `None` (headless mode): no pause, no queue — loops at maximum speed. This mode is intended for future reinforcement-learning workloads where hundreds of `Simulation` instances run via `multiprocessing.Pool` without any display.
 - Stops on win or end of sequence in both modes.
 

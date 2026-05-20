@@ -40,7 +40,7 @@ class Simulation(threading.Thread):
             self._state.apply_move(move)
             if self._queue is not None:
                 self._queue.put(REPAINT)
-                time.sleep(0.5)
+                time.sleep(0.3)
 
         if not self._stop_event.is_set() and not self._state.won:
             self._state.score = 0
