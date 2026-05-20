@@ -3,18 +3,19 @@
 ## Description
 Jeu de grille 10×10 en Python/pygame. Un personnage jaune doit atteindre une sortie jaune en suivant une séquence de déplacements entrée par l'utilisateur.
 
-Ce POC est la première étape vers un système d'**apprentissage par renforcement** : à terme, des centaines de parties headless (sans UI) tourneront en parallèle via `multiprocessing.Pool`. L'architecture doit donc maintenir une séparation stricte entre logique de jeu et affichage.
+Ce POC est la première étape vers un système d'**apprentissage par renforcement** : à terme, des centaines de parties headless (sans UI) tourneront en parallèle via `multiprocessing.Pool`. L'architecture maintient une séparation stricte entre logique de jeu et affichage.
 
 ## Deux modes d'exécution
 | Mode | Usage | Queue | Pause |
 |------|-------|-------|-------|
-| UI | Jeu interactif pygame | `queue.Queue` fournie | 0.3s |
+| UI | Jeu interactif pygame | `queue.Queue` fournie | 0.5s |
 | Headless | Entraînement RL, tests | `None` | Aucune |
 
 ## Stack technique
 - **Python** : 3.12 (LTS-équivalent, supporté jusqu'en 2028)
-- **Graphique** : pygame (SDL2, performant pour la manipulation de pixels, adapté aux threads futurs)
-- **Tests** : pytest
+- **Graphique** : pygame (SDL2)
+- **RL (à venir)** : PyTorch + Stable-Baselines3
+- **Tests** : pytest (170 tests, 0 échec)
 - **Exécutable** : PyInstaller
 
 ## Structure du projet
@@ -35,28 +36,37 @@ dungeon/claude/
 │   ├── tasks.json
 │   └── extensions.json
 ├── src/
-│   ├── main.py          ← point d'entrée
-│   ├── grid.py          ← TileType, Grid
-│   ├── game_state.py    ← GameState, logique déplacement
-│   ├── simulation.py    ← thread de simulation
-│   └── ui.py            ← GameUI, rendu pygame
+│   ├── main.py           ← point d'entrée pygame
+│   ├── directions.py     ← constante DIRECTIONS partagée
+│   ├── grid.py           ← TileType, Grid
+│   ├── game_state.py     ← GameState, logique déplacement, scoring, trail
+│   ├── pathfinder.py     ← PathFinder (Dijkstra pondéré)
+│   ├── simulation.py     ← thread de simulation (UI et headless)
+│   └── ui.py             ← GameUI, rendu pygame
 └── tests/
-    └── test_game.py     ← généré par /generate-tests
+    ├── conftest.py        ← sys.path setup
+    ├── helpers.py         ← FakeGrid partagée
+    ├── test_game.py       ← tests Grid, GameState, Simulation, scoring, trail
+    └── test_pathfinder.py ← tests PathFinder
 ```
 
 ## Spécification du jeu
 
 ### Terrain
-- Grille 10×10 cases, chaque case 10×10 pixels
-- Trait de 1px entre chaque case
+- Grille 10×10 cases, chaque case 40×40 pixels, séparateur 1px
 - Fond noir
 - Herbe (vert) : type par défaut
 - Pierre (gris) : 30% des cases, infranchissable
 - Eau (bleu) : 20% des cases, franchissable mais coûte 2 déplacements
 
 ### Éléments
-- Personnage : dessin simple jaune, placé aléatoirement sur une case herbe
-- Sortie : porte simple jaune, placée aléatoirement sur une case herbe (≠ personnage)
+- Personnage : stick figure jaune, placé aléatoirement sur une case herbe
+- Sortie : porte jaune, placée aléatoirement sur une case herbe (≠ personnage)
+- Si Dijkstra ne trouve aucun chemin entre personnage et sortie → restart automatique
+
+### Trails (tracés)
+- **Jaune** : chemin parcouru par le joueur (affiché en continu)
+- **Rouge** (+2px décalage) : chemin optimal calculé par Dijkstra (affiché uniquement en fin de partie)
 
 ### Interface
 - **Au-dessus du terrain** : champ "déplacements" (init 0), champ "note" (init 0), champ "Information" (vide)
@@ -65,19 +75,64 @@ dungeon/claude/
 ### Saisie
 - Flèches du clavier dans le champ "instruct" : ← ↑ → ↓
 - "start" ou Entrée depuis "instruct" : déclenche la simulation
-- "restart" : réinitialise tout et génère un nouveau terrain
+- "restart" : réinitialise tout, génère un nouveau terrain solvable
 
-### Simulation
-- Déplacement séquentiel selon la séquence "instruct"
-- Pause 0.3s entre chaque déplacement
-- Mise à jour du champ "déplacements" à chaque pas
-- Victoire si personnage == sortie → note=1, Information="GAGNE", séquence stoppée
+### Simulation et scoring
+- Déplacement séquentiel selon la séquence "instruct", pause 0.5s entre chaque pas
+- Victoire si personnage == sortie → `note = round(100 × optimal_cost / player_cost)`, Information="GAGNE"
+- Défaite si séquence épuisée sans atteindre la sortie → note=0, Information="PERDU"
+- Note 100 = chemin optimal, note < 100 = chemin sous-optimal
 
 ## Commandes rapides (skills)
-| Skill            | Commande VSCode       | Action                        |
-|------------------|-----------------------|-------------------------------|
-| generate-game    | Ctrl+Shift+P → Task   | Génère src/ (5 fichiers)      |
-| generate-tests   | Ctrl+Shift+P → Task   | Génère tests/test_game.py     |
-| run-tests        | Ctrl+Shift+P → Task   | Lance pytest                  |
-| run-game         | Ctrl+Shift+P → Task   | Démarre le jeu                |
-| build-exe        | Ctrl+Shift+P → Task   | Produit dungeon.exe           |
+| Skill            | Commande VSCode       | Action                          |
+|------------------|-----------------------|---------------------------------|
+| generate-game    | Ctrl+Shift+P → Task   | Génère src/ (7 fichiers)        |
+| generate-tests   | Ctrl+Shift+P → Task   | Génère tests/                   |
+| run-tests        | Ctrl+Shift+P → Task   | Lance pytest                    |
+| run-game         | Ctrl+Shift+P → Task   | Démarre le jeu                  |
+| build-exe        | Ctrl+Shift+P → Task   | Produit dungeon.exe             |
+
+---
+
+## Roadmap Apprentissage par Renforcement
+
+### Décisions clés (2026-05-20)
+- **Modèle** : petit réseau MLP (pas un LLM) — ~304 entrées → 128 → 64 → 4 sorties (Q-values)
+- **Algorithme** : DQN pour commencer, PPO ensuite
+- **Librairie** : PyTorch + Stable-Baselines3
+- **Reward** : `score / 100` (0.0 à 1.0, 1.0 = chemin optimal)
+- **Reproductibilité** : `random.Random(seed)` est déterministe → un seed suffit à reconstruire une partie
+- **Terrains** : pool de ~1000 seeds fixes (court terme), puis curriculum (moyen terme)
+
+### Phases de développement
+
+#### Phase 1 — `DungeonEnv` (interface Gym) ← prochaine étape
+Fichier : `src/dungeon_env.py`
+```python
+env = DungeonEnv(seed=42)          # terrain reproductible
+env = DungeonEnv(seed=None)        # terrain aléatoire à chaque reset()
+env = DungeonEnv(seed_pool=[...])  # tirage dans un ensemble fixe
+
+obs  = env.reset()                 # → dict {grid, char_pos, exit_pos}
+obs, reward, done, info = env.step("RIGHT")  # un pas à la fois
+```
+
+#### Phase 2 — Entraînement headless
+- Boucle `multiprocessing.Pool` (centaines de parties en parallèle)
+- Logs JSON : `{"grid_seed": 42, "state_seed": 42, "moves": [...], "score": 87}`
+
+#### Phase 3 — Visualisation pygame
+- Charger un checkpoint `.pt` (PyTorch)
+- Rejouer la partie dans l'UI via seed + séquence de mouvements générée par le modèle
+- Lancement : `python src/main.py --seed 42 --replay logs/episode_xxx.jsonl`
+
+#### Phase 4 — Amélioration itérative
+- Curriculum : herbe seule → roches → eau → full random
+- Reward shaping si nécessaire
+
+### Stratégie terrains (détail)
+| Option | Description | Quand |
+|--------|-------------|-------|
+| B — Pool fixe | ~1000 seeds pré-générés, jeu de validation séparé | Court terme |
+| C — Curriculum | Difficulté progressive par phases | Moyen terme |
+| A — Full random | Nouveau terrain à chaque épisode | Long terme |
