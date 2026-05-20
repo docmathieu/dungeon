@@ -60,8 +60,8 @@ class GameUI:
         if self._sim is not None:
             self._sim.stop()
             self._sim = None
-        self._grid = Grid()
-        self._state = GameState(self._grid)
+        self._state = GameState.create_solvable()
+        self._grid = self._state.grid
         self._instruct_text = ""
         self._instruct_active = False
 
@@ -77,6 +77,7 @@ class GameUI:
     def _draw(self) -> None:
         self._screen.fill(BLACK)
         self._draw_grid()
+        self._draw_trail()
         self._draw_character()
         self._draw_exit()
         self._draw_hud_top()
@@ -93,6 +94,20 @@ class GameUI:
                     TileType.WATER: BLUE,
                 }[tile]
                 pygame.draw.rect(self._screen, colour, _tile_rect(gx, gy))
+
+    def _draw_trail(self) -> None:
+        trail = self._state.trail
+        for i in range(len(trail) - 1):
+            ax, ay = trail[i]
+            bx, by = trail[i + 1]
+            ra = _tile_rect(ax, ay)
+            rb = _tile_rect(bx, by)
+            pygame.draw.line(
+                self._screen, YELLOW,
+                (ra.centerx, ra.centery),
+                (rb.centerx, rb.centery),
+                2,
+            )
 
     def _draw_character(self) -> None:
         gx, gy = self._state.char_pos

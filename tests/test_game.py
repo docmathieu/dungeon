@@ -12,6 +12,7 @@ import pytest
 from grid import Grid, TileType
 from game_state import GameState, DIRECTION_DELTA
 from simulation import Simulation, REPAINT
+from pathfinder import PathFinder
 
 
 # ---------------------------------------------------------------------------
@@ -54,6 +55,8 @@ def make_state(
     state = GameState(FakeGrid(overrides), seed=0)
     state.char_pos = char_pos
     state.exit_pos = exit_pos
+    state._optimal_cost = PathFinder().shortest_cost(FakeGrid(overrides), char_pos, exit_pos)
+    state.trail = [char_pos]
     return state
 
 
@@ -462,10 +465,10 @@ class TestWinCondition:
         state.apply_move("RIGHT")
         assert state.won is True
 
-    def test_reaching_exit_sets_score_to_one(self):
+    def test_reaching_exit_sets_score_to_100_when_optimal(self):
         state = make_state(char_pos=(4, 5), exit_pos=(5, 5))
         state.apply_move("RIGHT")
-        assert state.score == 1
+        assert state.score == 100
 
     def test_reaching_exit_sets_info_to_gagne(self):
         state = make_state(char_pos=(4, 5), exit_pos=(5, 5))
@@ -497,7 +500,7 @@ class TestWinCondition:
         state = make_state(char_pos=(4, 5), exit_pos=(5, 5))
         state.apply_move("RIGHT")
         state.apply_move("DOWN")
-        assert state.score == 1
+        assert state.score == 100
 
     def test_win_via_water_tile(self):
         state = make_state(
@@ -602,7 +605,7 @@ class TestSimulationLoseCondition:
         state = make_state(char_pos=(4, 5), exit_pos=(5, 5))
         Simulation(state, "→→→", ui_queue=None).run()
         assert state.info == "GAGNE"
-        assert state.score == 1
+        assert state.score == 100
 
     def test_no_perdu_when_stopped(self):
         state = make_state(char_pos=(3, 5), exit_pos=(8, 8))
@@ -716,3 +719,211 @@ class TestSimulationQueue:
             sim.join(timeout=2)
         assert not sim.is_alive()
         assert state.char_pos == (4, 5)
+
+
+# ===========================================================================
+# GameState — win scoring (0–100)
+# ===========================================================================
+
+class TestWinScore:
+    def test_optimal_path_scores_100(self):
+        """One-step path: player cost == optimal cost → score 100."""
+        state = make_state(char_pos=(4, 5), exit_pos=(5, 5))
+        state.apply_move("RIGHT")
+        assert state.score == 100
+
+    def test_suboptimal_path_scores_less_than_100(self):
+        """Player wastes two moves before reaching exit: score < 100."""
+        # Optimal: RIGHT once, cost=1.  Player: DOWN, UP, RIGHT → cost=3.
+        state = make_state(char_pos=(4, 5), exit_pos=(5, 5))
+        state.apply_move("DOWN")   # (4,6)
+        state.apply_move("UP")     # (4,5)
+        state.apply_move("RIGHT")  # (5,5) = exit, move_count=3
+        assert state.score < 100
+        assert state.won is True
+
+    def test_score_formula_exact(self):
+        """round(100 × optimal / player): optimal=1, player=3 → score=33."""
+        state = make_state(char_pos=(4, 5), exit_pos=(5, 5))
+        state.apply_move("DOWN")
+        state.apply_move("UP")
+        state.apply_move("RIGHT")
+        assert state.score == round(100 * 1 / 3)  # == 33
+
+    def test_score_is_positive_when_winning(self):
+        """Even a very suboptimal path yields score > 0 on win."""
+        state = make_state(char_pos=(4, 5), exit_pos=(5, 5))
+        for _ in range(4):
+            state.apply_move("DOWN")
+            state.apply_move("UP")
+        state.apply_move("RIGHT")  # exit, move_count=9
+        assert state.score > 0
+
+    def test_score_never_exceeds_100(self):
+        state = make_state(char_pos=(4, 5), exit_pos=(5, 5))
+        state.apply_move("RIGHT")
+        assert state.score <= 100
+
+    def test_score_uses_water_cost_in_optimal(self):
+        """Optimal through water costs 2; one-step player cost == optimal → 100."""
+        state = make_state(
+            char_pos=(4, 5),
+            exit_pos=(5, 5),
+            overrides={(5, 5): TileType.WATER},
+        )
+        state.apply_move("RIGHT")   # move_count=2, optimal=2
+        assert state.score == 100
+
+    def test_score_falls_back_to_100_when_optimal_cost_is_none(self):
+        """If PathFinder finds no path (edge case), score defaults to 100 on win."""
+        state = make_state(char_pos=(4, 5), exit_pos=(5, 5))
+        state._optimal_cost = None
+        state.apply_move("RIGHT")
+        assert state.score == 100
+
+    def test_score_zero_when_lost(self):
+        state = make_state(char_pos=(3, 5), exit_pos=(8, 8))
+        Simulation(state, "→", ui_queue=None).run()
+        assert state.score == 0
+
+    def test_score_not_set_before_win(self):
+        state = make_state(char_pos=(3, 5), exit_pos=(8, 8))
+        state.apply_move("RIGHT")
+        assert state.score == 0
+        assert not state.won
+
+
+# ===========================================================================
+# GameState — solvability & create_solvable
+# ===========================================================================
+
+class TestGameStateSolvable:
+    def test_is_solvable_true_when_path_exists(self):
+        state = make_state(char_pos=(0, 0), exit_pos=(9, 9))
+        assert state.is_solvable() is True
+
+    def test_is_solvable_false_when_enclosed_by_rocks(self):
+        # (0,0) at top-left: UP/LEFT hit boundary, RIGHT/DOWN are rocks → no path
+        overrides = {(1, 0): TileType.ROCK, (0, 1): TileType.ROCK}
+        state = make_state(char_pos=(0, 0), exit_pos=(5, 5), overrides=overrides)
+        assert state.is_solvable() is False
+
+    def test_is_solvable_false_when_exit_enclosed(self):
+        # Exit at (9,9) surrounded by rocks/boundary → no path from anywhere
+        overrides = {(8, 9): TileType.ROCK, (9, 8): TileType.ROCK}
+        state = make_state(char_pos=(0, 0), exit_pos=(9, 9), overrides=overrides)
+        assert state.is_solvable() is False
+
+    def test_is_solvable_true_after_water_detour(self):
+        # All direct cells are water but passable; path still exists
+        overrides = {(1, 0): TileType.WATER, (0, 1): TileType.WATER}
+        state = make_state(char_pos=(0, 0), exit_pos=(2, 2), overrides=overrides)
+        assert state.is_solvable() is True
+
+    def test_create_solvable_returns_solvable_state(self):
+        state = GameState.create_solvable()
+        assert state.is_solvable() is True
+
+    def test_create_solvable_repeated_always_solvable(self):
+        for _ in range(5):
+            assert GameState.create_solvable().is_solvable() is True
+
+    def test_create_solvable_retries_when_first_grid_unsolvable(self):
+        """PathFinder returns None on first call → retries → returns solvable state."""
+        with patch.object(PathFinder, 'shortest_cost', side_effect=[None, 4]):
+            state = GameState.create_solvable(seed=0)
+        assert state._optimal_cost == 4
+        assert state.is_solvable() is True
+
+    def test_create_solvable_seed_incremented_on_retry(self):
+        """With a fixed seed, each retry increments the seed so grids differ."""
+        seen_seeds: list = []
+        original_init = Grid.__init__
+
+        def capturing_init(self_grid, seed=None):
+            seen_seeds.append(seed)
+            original_init(self_grid, seed=seed)
+
+        with patch.object(Grid, '__init__', capturing_init):
+            with patch.object(PathFinder, 'shortest_cost', side_effect=[None, 3]):
+                GameState.create_solvable(seed=10)
+
+        assert seen_seeds == [10, 11]
+
+    def test_create_solvable_without_seed_retries_randomly(self):
+        """seed=None: retries use new random grids (seed stays None)."""
+        with patch.object(PathFinder, 'shortest_cost', side_effect=[None, None, 7]):
+            state = GameState.create_solvable()
+        assert state.is_solvable() is True
+
+
+# ===========================================================================
+# GameState — trail
+# ===========================================================================
+
+class TestTrail:
+    def test_trail_initialized_with_char_pos(self):
+        state = make_state(char_pos=(3, 5))
+        assert state.trail == [(3, 5)]
+
+    def test_trail_appended_on_successful_move(self):
+        state = make_state(char_pos=(3, 5))
+        state.apply_move("RIGHT")
+        assert state.trail == [(3, 5), (4, 5)]
+
+    def test_trail_not_appended_on_rock_block(self):
+        state = make_state(char_pos=(3, 5), overrides={(4, 5): TileType.ROCK})
+        state.apply_move("RIGHT")
+        assert state.trail == [(3, 5)]
+
+    def test_trail_not_appended_on_boundary(self):
+        state = make_state(char_pos=(0, 5))
+        state.apply_move("LEFT")
+        assert state.trail == [(0, 5)]
+
+    def test_trail_not_appended_after_win(self):
+        state = make_state(char_pos=(4, 5), exit_pos=(5, 5))
+        state.apply_move("RIGHT")   # wins at (5,5)
+        state.apply_move("RIGHT")   # ignored
+        assert state.trail == [(4, 5), (5, 5)]
+
+    def test_trail_length_equals_successful_moves_plus_one(self):
+        state = make_state(char_pos=(0, 5))
+        for _ in range(5):
+            state.apply_move("RIGHT")
+        assert len(state.trail) == 6
+
+    def test_trail_records_path_correctly(self):
+        state = make_state(char_pos=(0, 0))
+        state.apply_move("RIGHT")  # (1, 0)
+        state.apply_move("DOWN")   # (1, 1)
+        state.apply_move("LEFT")   # (0, 1)
+        assert state.trail == [(0, 0), (1, 0), (1, 1), (0, 1)]
+
+    def test_trail_can_revisit_positions(self):
+        state = make_state(char_pos=(3, 5))
+        state.apply_move("RIGHT")  # (4, 5)
+        state.apply_move("LEFT")   # (3, 5) back to start
+        assert state.trail == [(3, 5), (4, 5), (3, 5)]
+
+    def test_trail_includes_exit_as_last_entry_on_win(self):
+        state = make_state(char_pos=(4, 5), exit_pos=(5, 5))
+        state.apply_move("RIGHT")
+        assert state.trail[-1] == (5, 5)
+
+    def test_trail_blocked_move_not_counted(self):
+        overrides = {
+            (4, 5): TileType.ROCK,
+            (2, 5): TileType.ROCK,
+            (3, 4): TileType.ROCK,
+            (3, 6): TileType.ROCK,
+        }
+        state = make_state(char_pos=(3, 5), overrides=overrides)
+        for d in ("RIGHT", "LEFT", "UP", "DOWN"):
+            state.apply_move(d)
+        assert state.trail == [(3, 5)]
+
+    def test_trail_water_tile_appended_once(self):
+        state = make_state(char_pos=(3, 5), overrides={(4, 5): TileType.WATER})
+        state.apply_move("RIGHT")
+        assert state.trail == [(3, 5), (4, 5)]
