@@ -42,6 +42,17 @@ Test only pure-logic classes (Grid, GameState). Do NOT import pygame in tests â€
 - `test_score_zero_when_lost`: losing keeps score at 0
 - `test_score_not_set_before_win`: score stays 0 until exit is reached
 
+### Optimal path tests
+- `test_optimal_path_starts_at_char_pos`: `optimal_path[0] == char_pos`
+- `test_optimal_path_ends_at_exit_pos`: `optimal_path[-1] == exit_pos`
+- `test_optimal_path_is_none_when_unreachable`: enclosed start â†’ `None`
+- `test_optimal_path_length_on_all_grass`: length == Manhattan distance + 1
+- `test_optimal_path_direct_one_step`: single-step path verified exactly
+- `test_optimal_path_each_position_adjacent_to_next`: consecutive positions are 1 Manhattan step apart
+- `test_optimal_path_cost_matches_optimal_cost`: walked cost == `_optimal_cost`
+- `test_optimal_path_avoids_rocks`: no rock cell appears in the path
+- `test_optimal_path_init_uses_single_pathfinder_call`: `find_shortest_path` called exactly once at init
+
 ### Trail tests
 - `test_trail_initialized_with_char_pos`: trail starts as `[char_pos]`
 - `test_trail_appended_on_successful_move`: each passable move adds the new position

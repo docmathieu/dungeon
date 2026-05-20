@@ -22,9 +22,21 @@ class GameState:
         self.info: str = ""
         self.won: bool = False
 
-        self._optimal_cost: int | None = PathFinder().shortest_cost(
-            grid, self.char_pos, self.exit_pos
-        )
+        _moves = PathFinder().find_shortest_path(grid, self.char_pos, self.exit_pos)
+        if _moves is not None:
+            x, y = self.char_pos
+            _positions = [self.char_pos]
+            _cost = 0
+            for _move in _moves:
+                dx, dy = DIRECTIONS[_move]
+                x, y = x + dx, y + dy
+                _cost += grid.move_cost(x, y)
+                _positions.append((x, y))
+            self._optimal_cost: int | None = _cost
+            self.optimal_path: list[tuple[int, int]] | None = _positions
+        else:
+            self._optimal_cost = None
+            self.optimal_path = None
         self.trail: list[tuple[int, int]] = [self.char_pos]
 
     def is_solvable(self) -> bool:

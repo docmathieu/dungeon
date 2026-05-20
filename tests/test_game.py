@@ -35,10 +35,25 @@ def make_state(
     overrides: dict | None = None,
 ) -> GameState:
     """Build a GameState with fully-controlled positions and tile layout."""
-    state = GameState(FakeGrid(overrides), seed=0)
+    grid = FakeGrid(overrides)
+    state = GameState(grid, seed=0)
     state.char_pos = char_pos
     state.exit_pos = exit_pos
-    state._optimal_cost = PathFinder().shortest_cost(FakeGrid(overrides), char_pos, exit_pos)
+    _moves = PathFinder().find_shortest_path(grid, char_pos, exit_pos)
+    if _moves is not None:
+        x, y = char_pos
+        positions = [char_pos]
+        cost = 0
+        for move in _moves:
+            dx, dy = DIRECTIONS[move]
+            x, y = x + dx, y + dy
+            cost += grid.move_cost(x, y)
+            positions.append((x, y))
+        state._optimal_cost = cost
+        state.optimal_path = positions
+    else:
+        state._optimal_cost = None
+        state.optimal_path = None
     state.trail = [char_pos]
     return state
 
@@ -798,10 +813,9 @@ class TestGameStateSolvable:
             assert GameState.create_solvable().is_solvable() is True
 
     def test_create_solvable_retries_when_first_grid_unsolvable(self):
-        """PathFinder returns None on first call → retries → returns solvable state."""
-        with patch.object(PathFinder, 'shortest_cost', side_effect=[None, 4]):
+        """find_shortest_path returns None on first call → retries → returns solvable state."""
+        with patch.object(PathFinder, 'find_shortest_path', side_effect=[None, ["RIGHT"]]):
             state = GameState.create_solvable(seed=0)
-        assert state._optimal_cost == 4
         assert state.is_solvable() is True
 
     def test_create_solvable_seed_incremented_on_retry(self):
@@ -814,14 +828,14 @@ class TestGameStateSolvable:
             original_init(self_grid, seed=seed)
 
         with patch.object(Grid, '__init__', capturing_init):
-            with patch.object(PathFinder, 'shortest_cost', side_effect=[None, 3]):
+            with patch.object(PathFinder, 'find_shortest_path', side_effect=[None, ["RIGHT"]]):
                 GameState.create_solvable(seed=10)
 
         assert seen_seeds == [10, 11]
 
     def test_create_solvable_without_seed_retries_randomly(self):
         """seed=None: retries use new random grids (seed stays None)."""
-        with patch.object(PathFinder, 'shortest_cost', side_effect=[None, None, 7]):
+        with patch.object(PathFinder, 'find_shortest_path', side_effect=[None, None, ["RIGHT"]]):
             state = GameState.create_solvable()
         assert state.is_solvable() is True
 
@@ -896,3 +910,73 @@ class TestTrail:
         state = make_state(char_pos=(3, 5), overrides={(4, 5): TileType.WATER})
         state.apply_move("RIGHT")
         assert state.trail == [(3, 5), (4, 5)]
+
+
+# ===========================================================================
+# GameState — optimal_path
+# ===========================================================================
+
+class TestOptimalPath:
+    def test_optimal_path_starts_at_char_pos(self):
+        state = make_state(char_pos=(2, 3), exit_pos=(5, 6))
+        assert state.optimal_path[0] == (2, 3)
+
+    def test_optimal_path_ends_at_exit_pos(self):
+        state = make_state(char_pos=(2, 3), exit_pos=(5, 6))
+        assert state.optimal_path[-1] == (5, 6)
+
+    def test_optimal_path_is_none_when_unreachable(self):
+        # (0,0) enclosed: boundary blocks UP/LEFT, rocks block RIGHT/DOWN
+        overrides = {(1, 0): TileType.ROCK, (0, 1): TileType.ROCK}
+        state = make_state(char_pos=(0, 0), exit_pos=(5, 5), overrides=overrides)
+        assert state.optimal_path is None
+
+    def test_optimal_path_length_on_all_grass(self):
+        # Manhattan distance = 3 → 4 positions (start + 3 steps)
+        state = make_state(char_pos=(0, 0), exit_pos=(2, 1))
+        assert len(state.optimal_path) == 4
+
+    def test_optimal_path_direct_one_step(self):
+        state = make_state(char_pos=(4, 5), exit_pos=(5, 5))
+        assert state.optimal_path == [(4, 5), (5, 5)]
+
+    def test_optimal_path_each_position_adjacent_to_next(self):
+        state = make_state(char_pos=(0, 0), exit_pos=(4, 3))
+        path = state.optimal_path
+        for i in range(len(path) - 1):
+            ax, ay = path[i]
+            bx, by = path[i + 1]
+            assert abs(bx - ax) + abs(by - ay) == 1  # Manhattan step of 1
+
+    def test_optimal_path_cost_matches_optimal_cost(self):
+        state = make_state(char_pos=(0, 0), exit_pos=(3, 3),
+                           overrides={(1, 0): TileType.WATER})
+        path = state.optimal_path
+        grid = FakeGrid({(1, 0): TileType.WATER})
+        walked_cost = sum(grid.move_cost(path[i+1][0], path[i+1][1])
+                          for i in range(len(path) - 1))
+        assert walked_cost == state._optimal_cost
+
+    def test_optimal_path_avoids_rocks(self):
+        overrides = {(1, 0): TileType.ROCK}
+        state = make_state(char_pos=(0, 0), exit_pos=(2, 0), overrides=overrides)
+        path = state.optimal_path
+        assert (1, 0) not in path
+
+    def test_optimal_path_consistent_with_is_solvable(self):
+        state = make_state(char_pos=(0, 0), exit_pos=(9, 9))
+        assert state.is_solvable() == (state.optimal_path is not None)
+
+    def test_optimal_path_init_uses_single_pathfinder_call(self):
+        """find_shortest_path should be called once at init, not twice."""
+        call_count = 0
+        original = PathFinder.find_shortest_path
+
+        def counting_find(self_pf, grid, start, end):
+            nonlocal call_count
+            call_count += 1
+            return original(self_pf, grid, start, end)
+
+        with patch.object(PathFinder, 'find_shortest_path', counting_find):
+            GameState(FakeGrid(), seed=0)
+        assert call_count == 1

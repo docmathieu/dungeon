@@ -21,7 +21,7 @@ Produce the following files under `src/`:
 
 **`src/game_state.py`** — no pygame import
 - `GameState`: holds character position, exit position, move count, score (0–100), info message. Method: `apply_move(direction: str)`. Pure logic, no side effects on display.
-- At init, precomputes `_optimal_cost` via `PathFinder` for the current char/exit positions.
+- At init, calls `PathFinder().find_shortest_path(grid, char_pos, exit_pos)` **once** to compute both `_optimal_cost: int | None` and `optimal_path: list[tuple[int,int]] | None` (the sequence of positions of the optimal route, starting at char_pos and ending at exit_pos). Both are `None` if unreachable.
 - At init, initialises `trail: list[tuple[int,int]] = [char_pos]`. Each successful `apply_move` appends the new position; blocked and out-of-bounds moves do not append.
 - On win: `score = round(100 × optimal_cost / move_count)` (100 = optimal, <100 = suboptimal, 0 = lost). Falls back to 100 if no optimal path is found.
 - `is_solvable() -> bool`: returns True if `_optimal_cost is not None` (path exists from char to exit).
@@ -46,7 +46,8 @@ Produce the following files under `src/`:
 - GRASS: green (34,139,34)
 - ROCK: grey (128,128,128)
 - WATER: blue (30,144,255)
-- Trail: yellow line segments (2 px) connecting the centers of consecutive positions in `GameState.trail`; drawn after the grid and before the character so the character renders on top
+- Player trail: yellow line segments (2 px) connecting centers of consecutive positions in `GameState.trail`; drawn after grid, before character
+- Optimal trail: red line segments (2 px) connecting centers of consecutive positions in `GameState.optimal_path`; drawn only when `GameState.info != ""` (simulation over); offset +2 px in both x and y relative to cell centers so it does not overlap the yellow trail
 - Character: small yellow circle or stick figure drawn with pygame.draw primitives, centered in its cell
 - Exit: small yellow rectangle/door drawn with pygame.draw primitives, centered in its cell
 

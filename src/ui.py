@@ -15,7 +15,10 @@ GREEN  = ( 34, 139,  34)
 GREY   = (128, 128, 128)
 BLUE   = ( 30, 144, 255)
 YELLOW = (255, 255,   0)
+RED    = (220,  50,  50)
 DARK   = ( 40,  40,  40)
+
+OPTIMAL_TRAIL_OFFSET = 2   # px shift so optimal trail doesn't overlap player trail
 
 TILE_PX   = 40   # rendered cell size (pixels)
 SEP_PX    = 1    # separator between cells
@@ -78,6 +81,7 @@ class GameUI:
         self._screen.fill(BLACK)
         self._draw_grid()
         self._draw_trail()
+        self._draw_optimal_trail()
         self._draw_character()
         self._draw_exit()
         self._draw_hud_top()
@@ -94,6 +98,23 @@ class GameUI:
                     TileType.WATER: BLUE,
                 }[tile]
                 pygame.draw.rect(self._screen, colour, _tile_rect(gx, gy))
+
+    def _draw_optimal_trail(self) -> None:
+        if self._state.info == "" or self._state.optimal_path is None:
+            return
+        o = OPTIMAL_TRAIL_OFFSET
+        path = self._state.optimal_path
+        for i in range(len(path) - 1):
+            ax, ay = path[i]
+            bx, by = path[i + 1]
+            ra = _tile_rect(ax, ay)
+            rb = _tile_rect(bx, by)
+            pygame.draw.line(
+                self._screen, RED,
+                (ra.centerx + o, ra.centery + o),
+                (rb.centerx + o, rb.centery + o),
+                2,
+            )
 
     def _draw_trail(self) -> None:
         trail = self._state.trail
