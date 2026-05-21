@@ -139,12 +139,24 @@ Contraintes :
 
 ## Agents à venir — Roadmap RL
 
-### Agent : train-rl *(Phase 2)*
-**Fichiers produits** : `src/train.py`, `models/`, `logs/`
+### Agent : train-rl ✅ *(Phase 2)*
+**Skill** : `/train-rl`
+**Fichiers produits** : `src/model.py`, `src/train.py`, `models/`, `logs/`
+**Tests** : `tests/test_train.py` (35 tests)
 
-Boucle d'entraînement headless avec `multiprocessing.Pool`.
-Modèle : MLP PyTorch (304 → 128 → 64 → 4), algorithme DQN puis PPO.
-Logs JSON : `{"grid_seed": X, "state_seed": X, "moves": [...], "score": 87}`.
+Boucle d'entraînement DQN headless.
+
+```bash
+python src/train.py --episodes 5000 --seed-pool 0,1,2,...
+```
+
+Composants :
+- `DQNetwork` — MLP PyTorch : 304 → Dense(128,ReLU) → Dense(64,ReLU) → 4 sorties
+- `ReplayBuffer` — buffer circulaire FIFO, capacité 10 000
+- `DQNAgent` — epsilon-greedy (1.0→0.05), réseau cible synchronisé tous les 100 épisodes
+- `encode_obs()` — one-hot grille (300) + positions normalisées (4) = 304 floats
+- Logs JSON : `{"episode", "score", "moves", "epsilon", "reward"}` (un par épisode)
+- Checkpoints : `models/dqn_ep<N>.pt` tous les 500 épisodes + `dqn_final.pt`
 
 ### Agent : replay-model *(Phase 3)*
 Charge un checkpoint `.pt` et rejoue la partie dans pygame via seed + séquence générée par le modèle.

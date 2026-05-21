@@ -43,13 +43,16 @@ dungeon/claude/
 │   ├── pathfinder.py     ← PathFinder (Dijkstra pondéré)
 │   ├── simulation.py     ← thread de simulation headless (RL)
 │   ├── dungeon_env.py    ← DungeonEnv : interface Gym reset()/step() (Phase 1 RL)
+│   ├── model.py          ← DQNetwork MLP 304→128→64→4 (Phase 2 RL)
+│   ├── train.py          ← boucle DQN, ReplayBuffer, DQNAgent, logs JSON (Phase 2 RL)
 │   └── ui.py             ← GameUI, rendu pygame, touches fléchées directes
 └── tests/
     ├── conftest.py        ← sys.path setup
     ├── helpers.py         ← FakeGrid partagée
     ├── test_game.py       ← tests Grid, GameState, Simulation, scoring, trail
-    ├── test_pathfinder.py ← tests PathFinder
-    └── test_dungeon_env.py ← tests DungeonEnv (43 tests)
+    ├── test_pathfinder.py  ← tests PathFinder
+    ├── test_dungeon_env.py ← tests DungeonEnv (43 tests)
+    └── test_train.py       ← tests encode_obs, ReplayBuffer, DQNetwork, DQNAgent (35 tests)
 ```
 
 ## Spécification du jeu
@@ -119,11 +122,18 @@ obs  = env.reset()                 # → dict {grid, char_pos, exit_pos}
 obs, reward, done, info = env.step("RIGHT")  # un pas à la fois
 ```
 
-#### Phase 2 — Entraînement headless ← prochaine étape
-- Boucle `multiprocessing.Pool` (centaines de parties en parallèle)
-- Logs JSON : `{"grid_seed": 42, "state_seed": 42, "moves": [...], "score": 87}`
+#### Phase 2 — Entraînement headless ✅ implémentée
+Fichiers : `src/model.py`, `src/train.py`
 
-#### Phase 3 — Visualisation pygame
+```bash
+python src/train.py --episodes 5000 --seed-pool 0,1,2,...
+```
+- `DQNetwork` MLP : 304 → 128 → 64 → 4 sorties (Q-values)
+- `DQNAgent` : epsilon-greedy, réseau cible, replay buffer
+- Logs JSON dans `logs/train.jsonl` : `{"episode", "score", "moves", "epsilon", "reward"}`
+- Checkpoints dans `models/dqn_ep<N>.pt` + `models/dqn_final.pt`
+
+#### Phase 3 — Visualisation pygame ← prochaine étape
 - Charger un checkpoint `.pt` (PyTorch)
 - Rejouer la partie dans l'UI via seed + séquence de mouvements générée par le modèle
 - Lancement : `python src/main.py --seed 42 --replay logs/episode_xxx.jsonl`
