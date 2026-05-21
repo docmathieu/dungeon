@@ -1,15 +1,15 @@
 # Dungeon POC — Claude Code Project
 
 ## Description
-Jeu de grille 10×10 en Python/pygame. Un personnage jaune doit atteindre une sortie jaune en suivant une séquence de déplacements entrée par l'utilisateur.
+Jeu de grille 10×10 en Python/pygame. Un personnage jaune doit atteindre une sortie jaune en se déplaçant case par case via les touches fléchées du clavier.
 
 Ce POC est la première étape vers un système d'**apprentissage par renforcement** : à terme, des centaines de parties headless (sans UI) tourneront en parallèle via `multiprocessing.Pool`. L'architecture maintient une séparation stricte entre logique de jeu et affichage.
 
 ## Deux modes d'exécution
-| Mode | Usage | Queue | Pause |
-|------|-------|-------|-------|
-| UI | Jeu interactif pygame | `queue.Queue` fournie | 0.5s |
-| Headless | Entraînement RL, tests | `None` | Aucune |
+| Mode | Usage | Interaction | Pause |
+|------|-------|-------------|-------|
+| UI | Jeu interactif pygame | touches fléchées → `apply_move()` direct | aucune (temps réel) |
+| Headless | Entraînement RL, tests | `Simulation(state, instruct, queue=None)` | aucune |
 
 ## Stack technique
 - **Python** : 3.12 (LTS-équivalent, supporté jusqu'en 2028)
@@ -41,8 +41,8 @@ dungeon/claude/
 │   ├── grid.py           ← TileType, Grid
 │   ├── game_state.py     ← GameState, logique déplacement, scoring, trail
 │   ├── pathfinder.py     ← PathFinder (Dijkstra pondéré)
-│   ├── simulation.py     ← thread de simulation (UI et headless)
-│   └── ui.py             ← GameUI, rendu pygame
+│   ├── simulation.py     ← thread de simulation headless (RL)
+│   └── ui.py             ← GameUI, rendu pygame, touches fléchées directes
 └── tests/
     ├── conftest.py        ← sys.path setup
     ├── helpers.py         ← FakeGrid partagée
@@ -69,19 +69,19 @@ dungeon/claude/
 - **Rouge** (+2px décalage) : chemin optimal calculé par Dijkstra (affiché uniquement en fin de partie)
 
 ### Interface
-- **Au-dessus du terrain** : champ "déplacements" (init 0), champ "note" (init 0), champ "Information" (vide)
-- **En dessous du terrain** : bouton "restart", champ input "instruct", bouton "start"
+- **Au-dessus du terrain** : champ "Déplacements" (init 0), champ "Note" (init 0), champ "Information" (vide), légende des touches
+- **En dessous du terrain** : bouton "restart" uniquement
 
-### Saisie
-- Flèches du clavier dans le champ "instruct" : ← ↑ → ↓
-- "start" ou Entrée depuis "instruct" : déclenche la simulation
-- "restart" : réinitialise tout, génère un nouveau terrain solvable
+### Contrôles
+- **Flèches clavier ← ↑ → ↓** : déplacent le personnage d'une case immédiatement (`apply_move()` direct)
+- **Touche R ou bouton restart** : réinitialise tout, génère un nouveau terrain solvable
 
-### Simulation et scoring
-- Déplacement séquentiel selon la séquence "instruct", pause 0.5s entre chaque pas
-- Victoire si personnage == sortie → `note = round(100 × optimal_cost / player_cost)`, Information="GAGNE"
-- Défaite si séquence épuisée sans atteindre la sortie → note=0, Information="PERDU"
+### Scoring
+- Déplacement réussi : incrémente "Déplacements" du coût de la case (herbe=1, eau=2)
+- Choc contre un rocher ou bord de grille : incrémente "Déplacements" de 1, position inchangée (pénalité RL)
+- Victoire si personnage == sortie → `Note = round(100 × optimal_cost / player_cost)`, Information="GAGNE"
 - Note 100 = chemin optimal, note < 100 = chemin sous-optimal
+- Chemin optimal (rouge) affiché uniquement en fin de partie
 
 ## Commandes rapides (skills)
 | Skill            | Commande VSCode       | Action                          |

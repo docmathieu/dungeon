@@ -20,10 +20,19 @@ Test only pure-logic classes (Grid, GameState). Do NOT import pygame in tests �
 - `test_character_exit_different`: character and exit start on different cells
 
 ### GameState / movement tests
-- `test_move_into_rock_blocked`: moving into a ROCK cell leaves position unchanged, déplacements unchanged
+- `test_move_into_rock_blocked`: moving into a ROCK cell leaves position unchanged, déplacements +1 (penalty)
+- `test_multiple_bumps_same_rock_accumulate`: hitting the same rock 3 times → move_count == 3
+- `test_rock_bump_does_not_change_trail`: bumping a rock must not append to `trail`
+- `test_boundary_costs_one_like_rock`: out-of-bounds move costs 1, same penalty as hitting a rock
+- `test_multiple_boundary_bumps_accumulate`: hitting the same wall 3 times → move_count == 3
+- `test_boundary_bump_does_not_change_trail`: hitting boundary must not append to `trail`
+- `test_rock_bump_costs_one_in_simulation`: Simulation applies rock bump cost (move_count +1, pos unchanged)
+- `test_boundary_bump_costs_one_in_simulation`: Simulation applies boundary cost (move_count +1, pos unchanged)
+- `test_rock_bump_reduces_win_score`: bumping a rock before reaching exit lowers the score (known formula)
+- `test_boundary_bump_reduces_win_score`: hitting boundary before reaching exit lowers the score (known formula)
 - `test_move_into_grass`: position updates, déplacements +1
 - `test_move_into_water`: position updates, déplacements +2
-- `test_move_out_of_bounds`: moving off grid edges leaves position unchanged
+- `test_move_out_of_bounds`: moving off grid edges leaves position unchanged, déplacements +1 (same penalty as rock)
 - `test_win_condition`: when character moves onto exit cell → score=100 (if optimal), info="GAGNE"
 - `test_no_move_after_win`: further moves after win have no effect
 - `test_lose_condition`: sequence ends without reaching exit → score=0, info="PERDU"

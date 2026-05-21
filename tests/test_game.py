@@ -361,10 +361,11 @@ class TestApplyMoveCost:
         state.apply_move("RIGHT")  # -> (3,5) grass +1
         assert state.move_count == 3
 
-    def test_blocked_move_does_not_count(self):
+    def test_rock_bump_costs_one(self):
+        # Moving into a rock counts as 1 move (no position change)
         state = make_state(char_pos=(3, 5), overrides={(4, 5): TileType.ROCK})
         state.apply_move("RIGHT")
-        assert state.move_count == 0
+        assert state.move_count == 1
 
 
 # ===========================================================================
@@ -376,37 +377,53 @@ class TestApplyMoveBoundary:
         state = make_state(char_pos=(0, 5))
         state.apply_move("LEFT")
         assert state.char_pos == (0, 5)
-        assert state.move_count == 0
+        assert state.move_count == 1   # boundary costs 1 like a rock
 
     def test_right_boundary(self):
         state = make_state(char_pos=(9, 5))
         state.apply_move("RIGHT")
         assert state.char_pos == (9, 5)
-        assert state.move_count == 0
+        assert state.move_count == 1
 
     def test_top_boundary(self):
         state = make_state(char_pos=(5, 0))
         state.apply_move("UP")
         assert state.char_pos == (5, 0)
-        assert state.move_count == 0
+        assert state.move_count == 1
 
     def test_bottom_boundary(self):
         state = make_state(char_pos=(5, 9))
         state.apply_move("DOWN")
         assert state.char_pos == (5, 9)
-        assert state.move_count == 0
+        assert state.move_count == 1
 
     def test_corner_top_left(self):
         state = make_state(char_pos=(0, 0))
         state.apply_move("UP")
         state.apply_move("LEFT")
         assert state.char_pos == (0, 0)
+        assert state.move_count == 2   # two boundary bumps
 
     def test_corner_bottom_right(self):
         state = make_state(char_pos=(9, 9))
         state.apply_move("DOWN")
         state.apply_move("RIGHT")
         assert state.char_pos == (9, 9)
+        assert state.move_count == 2
+
+    def test_multiple_boundary_bumps_accumulate(self):
+        """Hitting the same wall 3 times costs 3 moves total."""
+        state = make_state(char_pos=(0, 5))
+        state.apply_move("LEFT")
+        state.apply_move("LEFT")
+        state.apply_move("LEFT")
+        assert state.move_count == 3
+
+    def test_boundary_bump_does_not_change_trail(self):
+        """Hitting a boundary must not append a new position to the trail."""
+        state = make_state(char_pos=(0, 5))
+        state.apply_move("LEFT")
+        assert state.trail == [(0, 5)]
 
 
 # ===========================================================================
@@ -417,8 +434,8 @@ class TestApplyMoveRock:
     def test_blocked_by_adjacent_rock(self):
         state = make_state(char_pos=(3, 5), overrides={(4, 5): TileType.ROCK})
         state.apply_move("RIGHT")
-        assert state.char_pos == (3, 5)
-        assert state.move_count == 0
+        assert state.char_pos == (3, 5)   # position unchanged
+        assert state.move_count == 1       # rock bump costs 1
 
     def test_rock_above(self):
         state = make_state(char_pos=(3, 5), overrides={(3, 4): TileType.ROCK})
@@ -435,8 +452,28 @@ class TestApplyMoveRock:
         state = make_state(char_pos=(3, 5), overrides=overrides)
         for direction in ("RIGHT", "LEFT", "UP", "DOWN"):
             state.apply_move(direction)
-        assert state.char_pos == (3, 5)
-        assert state.move_count == 0
+        assert state.char_pos == (3, 5)   # position unchanged
+        assert state.move_count == 4       # 4 rock bumps × 1 each
+
+    def test_multiple_bumps_same_rock_accumulate(self):
+        """Hitting the same rock repeatedly accumulates the cost each time."""
+        state = make_state(char_pos=(3, 5), overrides={(4, 5): TileType.ROCK})
+        state.apply_move("RIGHT")
+        state.apply_move("RIGHT")
+        state.apply_move("RIGHT")
+        assert state.move_count == 3
+
+    def test_rock_bump_does_not_change_trail(self):
+        """Bumping a rock must not append a new position to the trail."""
+        state = make_state(char_pos=(3, 5), overrides={(4, 5): TileType.ROCK})
+        state.apply_move("RIGHT")
+        assert state.trail == [(3, 5)]
+
+    def test_boundary_costs_one_like_rock(self):
+        """Out-of-bounds moves cost 1, same penalty as hitting a rock."""
+        state = make_state(char_pos=(0, 5))
+        state.apply_move("LEFT")    # hits boundary
+        assert state.move_count == 1
 
 
 # ===========================================================================
@@ -551,6 +588,19 @@ class TestSimulationHeadless:
         state = make_state(char_pos=(3, 5), overrides={(4, 5): TileType.ROCK})
         Simulation(state, "→", ui_queue=None).run()
         assert state.char_pos == (3, 5)
+
+    def test_rock_bump_costs_one_in_simulation(self):
+        """Simulation: bumping a rock increments move_count by 1, no position change."""
+        state = make_state(char_pos=(3, 5), overrides={(4, 5): TileType.ROCK})
+        Simulation(state, "→", ui_queue=None).run()
+        assert state.move_count == 1
+
+    def test_boundary_bump_costs_one_in_simulation(self):
+        """Simulation: hitting the grid boundary increments move_count by 1."""
+        state = make_state(char_pos=(0, 5))
+        Simulation(state, "←", ui_queue=None).run()
+        assert state.char_pos == (0, 5)
+        assert state.move_count == 1
 
     def test_non_arrow_characters_produce_no_moves(self):
         state = make_state(char_pos=(3, 5))
@@ -775,6 +825,38 @@ class TestWinScore:
         state.apply_move("RIGHT")
         assert state.score == 0
         assert not state.won
+
+    def test_boundary_bump_reduces_win_score(self):
+        """Hitting the boundary before winning reduces the score below 100.
+
+        Setup: char=(0,5), exit=(1,5).
+        Optimal cost = 1 (one step RIGHT).
+        Player: LEFT → hits boundary (+1), RIGHT → exit (+1), total = 2.
+        Score = round(100 × 1 / 2) = 50.
+        """
+        state = make_state(char_pos=(0, 5), exit_pos=(1, 5))
+        state.apply_move("LEFT")    # hits boundary → +1, pos unchanged
+        state.apply_move("RIGHT")   # moves to exit (1,5) → +1
+        assert state.won is True
+        assert state.score == round(100 * 1 / 2)  # == 50
+
+    def test_rock_bump_reduces_win_score(self):
+        """Bumping a rock before winning reduces the score below 100.
+
+        Setup: char=(3,5), exit=(4,5), rock at (3,6).
+        Optimal cost = 1 (one step RIGHT).
+        Player: DOWN → bumps rock (+1), RIGHT → exit (+1), total = 2.
+        Score = round(100 × 1 / 2) = 50.
+        """
+        state = make_state(
+            char_pos=(3, 5),
+            exit_pos=(4, 5),
+            overrides={(3, 6): TileType.ROCK},
+        )
+        state.apply_move("DOWN")    # bumps (3,6) rock → +1, pos unchanged
+        state.apply_move("RIGHT")   # moves to exit (4,5) → +1
+        assert state.won is True
+        assert state.score == round(100 * 1 / 2)  # == 50
 
 
 # ===========================================================================

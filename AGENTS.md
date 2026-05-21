@@ -30,8 +30,10 @@ Fonctionnalités couvertes :
 - Restart automatique si Dijkstra ne trouve aucun chemin (`create_solvable`)
 - Trail jaune = chemin du joueur ; trail rouge (+2px) = chemin optimal, visible en fin de partie
 - Score 0-100 : `round(100 × optimal_cost / player_cost)`, 100 = chemin optimal
-- Interface : labels déplacements/note/information, input "instruct" (flèches), boutons start/restart
-- Simulation : pause 0.5s par pas, détection victoire/défaite
+- Choc contre un rocher ou bord de grille : `move_count += 1`, position inchangée, trail inchangé
+- Interface : labels déplacements/note/information, légende touches, bouton restart uniquement
+- Contrôle : touches fléchées → `apply_move()` direct (pas de thread, pas de queue dans l'UI)
+- `Simulation` conservée pour usage RL headless uniquement (`queue=None`)
 
 Contraintes imposées à l'agent :
 - `directions.py`, `grid.py`, `game_state.py`, `pathfinder.py`, `simulation.py` : aucun import pygame

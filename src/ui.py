@@ -1,11 +1,9 @@
-import queue
 import sys
 
 import pygame
 
 from grid import Grid, TileType
 from game_state import GameState
-from simulation import Simulation, REPAINT
 
 
 # --- colours ---
@@ -50,31 +48,13 @@ class GameUI:
 
         self._grid: Grid | None = None
         self._state: GameState | None = None
-        self._sim: Simulation | None = None
-        self._q: queue.Queue = queue.Queue()
-
-        self._instruct_text = ""
-        self._instruct_active = False
 
         self._reset()
 
     # ------------------------------------------------------------------
     def _reset(self) -> None:
-        if self._sim is not None:
-            self._sim.stop()
-            self._sim = None
         self._state = GameState.create_solvable()
         self._grid = self._state.grid
-        self._instruct_text = ""
-        self._instruct_active = False
-
-    def _start_sim(self) -> None:
-        if self._sim is not None and self._sim.is_alive():
-            return
-        if not self._instruct_text:
-            return
-        self._sim = Simulation(self._state, self._instruct_text, self._q)
-        self._sim.start()
 
     # ------------------------------------------------------------------
     def _draw(self) -> None:
@@ -163,8 +143,8 @@ class GameUI:
         info_col = (80, 255, 80) if s.info == "GAGNE" else (255, 80, 80) if s.info == "PERDU" else WHITE
         self._label(f"Information : {s.info}", 280, 8, info_col)
 
-        # second row: arrow legend
-        self._label("← ↑ → ↓  dans 'instruct'", 4, 32, GREY)
+        # second row: controls legend
+        self._label("← ↑ → ↓  pour se déplacer  |  R pour restart", 4, 32, GREY)
 
     def _draw_hud_bot(self) -> None:
         bot_y = HUD_TOP_H + GRID_H
@@ -176,21 +156,6 @@ class GameUI:
         self._label("restart", restart_rect.x + 6, restart_rect.y + 6)
         self._restart_rect = restart_rect
 
-        # instruct input
-        input_rect = pygame.Rect(84, bot_y + 16, 230, 28)
-        border_col = YELLOW if self._instruct_active else WHITE
-        pygame.draw.rect(self._screen, DARK, input_rect)
-        pygame.draw.rect(self._screen, border_col, input_rect, 1)
-        self._label(self._instruct_text, input_rect.x + 4, input_rect.y + 6)
-        self._input_rect = input_rect
-
-        # start button
-        start_rect = pygame.Rect(324, bot_y + 16, 70, 28)
-        pygame.draw.rect(self._screen, DARK, start_rect)
-        pygame.draw.rect(self._screen, WHITE, start_rect, 1)
-        self._label("start", start_rect.x + 14, start_rect.y + 6)
-        self._start_rect = start_rect
-
     # ------------------------------------------------------------------
     def _handle_event(self, event: pygame.event.Event) -> None:
         if event.type == pygame.QUIT:
@@ -200,39 +165,24 @@ class GameUI:
         if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
             if self._restart_rect.collidepoint(event.pos):
                 self._reset()
-            elif self._start_rect.collidepoint(event.pos):
-                self._start_sim()
-            elif self._input_rect.collidepoint(event.pos):
-                self._instruct_active = True
-            else:
-                self._instruct_active = False
 
-        if event.type == pygame.KEYDOWN and self._instruct_active:
+        if event.type == pygame.KEYDOWN:
             arrow_map = {
-                pygame.K_LEFT:  "←",
-                pygame.K_UP:    "↑",
-                pygame.K_RIGHT: "→",
-                pygame.K_DOWN:  "↓",
+                pygame.K_LEFT:  "LEFT",
+                pygame.K_RIGHT: "RIGHT",
+                pygame.K_UP:    "UP",
+                pygame.K_DOWN:  "DOWN",
             }
-            if event.key in arrow_map:
-                self._instruct_text += arrow_map[event.key]
-            elif event.key == pygame.K_BACKSPACE:
-                self._instruct_text = self._instruct_text[:-1]
-            elif event.key == pygame.K_RETURN:
-                self._start_sim()
+            if event.key in arrow_map and not self._state.won:
+                self._state.apply_move(arrow_map[event.key])
+            elif event.key == pygame.K_r:
+                self._reset()
 
     # ------------------------------------------------------------------
     def run(self) -> None:
         while True:
             for event in pygame.event.get():
                 self._handle_event(event)
-
-            # drain repaint signals from the simulation thread
-            try:
-                while True:
-                    self._q.get_nowait()
-            except queue.Empty:
-                pass
 
             self._draw()
             self._clock.tick(60)

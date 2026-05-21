@@ -70,8 +70,10 @@ class GameState:
         ny = self.char_pos[1] + delta[1]
 
         if not (0 <= nx < self.grid.WIDTH and 0 <= ny < self.grid.HEIGHT):
+            self.move_count += 1   # hitting the boundary costs 1 move (same as rock)
             return
         if not self.grid.is_passable(nx, ny):
+            self.move_count += 1   # bumping into a rock costs 1 move (no position change)
             return
 
         self.move_count += self.grid.move_cost(nx, ny)

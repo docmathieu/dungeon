@@ -30,12 +30,15 @@ Produce the following files under `src/`:
 **`src/simulation.py`** — no pygame import
 - `Simulation`: takes a `GameState`, an instruction string, and an optional `queue.Queue` (default `None`).
 - Runs as a `threading.Thread`.
-- If `queue` is provided (UI mode): pauses 0.3s between moves, puts a repaint signal in the queue after each move.
-- If `queue` is `None` (headless mode): no pause, no queue — loops at maximum speed. This mode is intended for future reinforcement-learning workloads where hundreds of `Simulation` instances run via `multiprocessing.Pool` without any display.
-- Stops on win or end of sequence in both modes.
+- Used exclusively for headless RL workloads (`queue=None`): no pause, no queue — loops at maximum speed. Hundreds of instances can run via `multiprocessing.Pool` without any display.
+- Stops on win or end of sequence.
+- Note: the interactive UI does NOT use Simulation — it applies moves directly via `apply_move()`.
 
 **`src/ui.py`** — pygame
-- `GameUI`: creates the pygame window, renders grid and HUD, runs the event loop. Reads signals from the queue on each frame tick to update display without blocking.
+- `GameUI`: creates the pygame window, renders grid and HUD, runs the event loop.
+- Arrow keys (← ↑ → ↓) call `GameState.apply_move()` directly on each KEYDOWN event — no simulation thread, no queue.
+- Key R and the "restart" button both call `_reset()` → `GameState.create_solvable()`.
+- No `import queue`, no `import simulation` in this module.
 
 **`src/main.py`** — entry point
 - Instantiates Grid, GameState, GameUI and starts the event loop.
@@ -58,18 +61,16 @@ Produce the following files under `src/`:
 All in white text, pygame.font
 
 ## Controls layout (below grid)
-- Button "Restart"
-- Text input field "instruct" (captures arrow key presses → appends ←↑→↓ characters, unicode ←↑→↓)
-- Button "Start"
+- Button "Restart" only (no instruct field, no start button)
 
-## Simulation rules
-- Arrow keys fill the instruct field (left=←, up=↑, right=→, down=↓)
-- Start button or Enter triggers simulation
-- Per move: check target cell; ROCK → skip (no move, no cost); WATER → passable, costs 2 moves; boundary → skip
-- Increment "Déplacements" by the cost on each attempted move that succeeds
-- Win condition: character lands on exit cell → Note=round(100×optimal/player_cost), Information="GAGNE", stop simulation (Note=100 means optimal path)
-- Lose condition: sequence ends without reaching exit → Note=0, Information="PERDU" (only if simulation was not manually stopped)
-- Restart button: call `GameState.create_solvable()` (retries until a path exists), reset all fields
+## Interaction rules
+- Arrow keys (← ↑ → ↓) each call `GameState.apply_move(direction)` immediately on KEYDOWN
+- Key R and the "restart" button both call `GameState.create_solvable()` and reset all fields
+- Per move: check target cell; ROCK → position unchanged, costs 1; WATER → passable, costs 2; boundary → position unchanged, costs 1 (same penalty as rock, teaches RL to stay in-bounds)
+- Increment "Déplacements" by the cost on each move that succeeds
+- Win condition: character lands on exit cell → Note=round(100×optimal/player_cost), Information="GAGNE" (Note=100 = optimal path)
+- No automatic "PERDU" in UI mode — player has unlimited moves
+- Restart: `GameState.create_solvable()` retries until a solvable grid is found
 
 ## Constraints
 - Python 3.12, pygame only (no tkinter, no other GUI lib)
