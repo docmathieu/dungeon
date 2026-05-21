@@ -105,7 +105,7 @@ dungeon/claude/
 - **Modèle** : petit réseau MLP (pas un LLM) — ~304 entrées → 128 → 64 → 4 sorties (Q-values)
 - **Algorithme** : DQN pour commencer, PPO ensuite
 - **Librairie** : PyTorch + Stable-Baselines3
-- **Reward** : `score / 100` (0.0 à 1.0, 1.0 = chemin optimal)
+- **Reward** : `score / 100` (0.0 à 1.0, 1.0 = chemin optimal) + reward shaping intermédiaire
 - **Reproductibilité** : `random.Random(seed)` est déterministe → un seed suffit à reconstruire une partie
 - **Terrains** : pool de ~1000 seeds fixes (court terme), puis curriculum (moyen terme)
 
@@ -120,31 +120,53 @@ env = DungeonEnv(seed_pool=[...])  # tirage dans un ensemble fixe
 
 obs  = env.reset()                 # → dict {grid, char_pos, exit_pos}
 obs, reward, done, info = env.step("RIGHT")  # un pas à la fois
+# reward : victoire → score/100.0 | déplacement normal → -0.01 | choc → -0.05
 ```
 
-#### Phase 2 — Entraînement headless ✅ implémentée
+#### Phase 2 — Entraînement headless ✅ implémentée + analysée
 Fichiers : `src/model.py`, `src/train.py`
 
 ```bash
-python src/train.py --episodes 5000 --seed-pool 0,1,2,...
+python src/train.py --episodes 3000 --seed 42
 ```
 - `DQNetwork` MLP : 304 → 128 → 64 → 4 sorties (Q-values)
-- `DQNAgent` : epsilon-greedy, réseau cible, replay buffer
+- `DQNAgent` : epsilon-greedy (ε 1.0→0.05), réseau cible, replay buffer 10 000
+- Reward shaping : `REWARD_STEP=-0.01`, `REWARD_BUMP=-0.05`
 - Logs JSON dans `logs/train.jsonl` : `{"episode", "score", "moves", "epsilon", "reward"}`
 - Checkpoints dans `models/dqn_ep<N>.pt` + `models/dqn_final.pt`
 
-#### Phase 3 — Visualisation pygame ← prochaine étape
+**Résultats run seed=42, 3 000 épisodes (2026-05-21) :**
+| Bloc | Victoires | Score moy | Moves moy |
+|------|-----------|-----------|-----------|
+| ep 1–500 | 23% | 23.8 | 53.6 |
+| ep 501–1000 | 36% | 62.6 | 25.2 |
+| ep 1001–1500 | **99.6%** | **93.4** | **9.6** |
+| ep 1501–2000 | **98.2%** | **89.8** | **10.0** |
+| ep 2001–2500 | 35.8% | 54.3 | 27.7 |
+| ep 2501–3000 | 3.6% | 17.4 | 53.3 |
+
+**Diagnostic : catastrophic forgetting** — l'agent maîtrise parfaitement seed=42 entre ep 1000–2000
+puis désapprend. Les poids encodant la bonne politique sont écrasés par les nouvelles mises à jour.
+**Meilleur checkpoint exploitable : `models/dqn_ep1500.pt` ou `dqn_ep2000.pt`.**
+
+**Prochaine action Phase 2 — Diversifier les seeds (`seed_pool`) :**
+- Objectif : vérifier si le modèle reste stable sur terrains variés et ne surappend pas un seul terrain
+- `dqn_ep1500.pt` n'est probablement pas bon sur d'autres seeds → la généralisation est la vraie mesure
+- Commande cible : `python src/train.py --episodes 5000 --seed-pool 0,1,2,...,99`
+- Métriques à surveiller : taux de victoire sur seeds hors-pool (jeu de validation)
+
+#### Phase 3 — Visualisation pygame *(après stabilisation Phase 2)*
 - Charger un checkpoint `.pt` (PyTorch)
 - Rejouer la partie dans l'UI via seed + séquence de mouvements générée par le modèle
 - Lancement : `python src/main.py --seed 42 --replay logs/episode_xxx.jsonl`
 
 #### Phase 4 — Amélioration itérative
 - Curriculum : herbe seule → roches → eau → full random
-- Reward shaping si nécessaire
+- Réduire le learning rate (1e-3 → 3e-4) si instabilité persiste avec seed_pool
 
 ### Stratégie terrains (détail)
 | Option | Description | Quand |
 |--------|-------------|-------|
-| B — Pool fixe | ~1000 seeds pré-générés, jeu de validation séparé | Court terme |
+| B — Pool fixe | ~1000 seeds pré-générés, jeu de validation séparé | ← Court terme (prochain) |
 | C — Curriculum | Difficulté progressive par phases | Moyen terme |
 | A — Full random | Nouveau terrain à chaque épisode | Long terme |

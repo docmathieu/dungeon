@@ -123,7 +123,9 @@ env = DungeonEnv(seed_pool=[...])   # tirage dans un ensemble fixe
 
 obs              = env.reset()      # → dict {grid, char_pos, exit_pos}
 obs, reward, done, info = env.step("RIGHT")
-# reward = score / 100.0  (1.0 = chemin optimal, 0.0 sinon)
+# reward : victoire → score/100.0 (1.0=optimal)
+#          déplacement normal → -0.01
+#          choc mur/bord      → -0.05
 # done   = True si victoire ou steps >= max_steps (défaut 100)
 ```
 

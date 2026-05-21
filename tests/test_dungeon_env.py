@@ -2,7 +2,7 @@
 
 import pytest
 
-from dungeon_env import DungeonEnv, ACTIONS
+from dungeon_env import DungeonEnv, ACTIONS, REWARD_STEP, REWARD_BUMP
 from game_state import GameState
 from grid import Grid
 
@@ -146,11 +146,12 @@ class TestDungeonEnvStep:
         assert set(obs.keys()) == {"grid", "char_pos", "exit_pos"}
         assert len(obs["grid"]) == 100
 
-    def test_reward_zero_on_non_terminal_step(self):
+    def test_reward_negative_on_non_terminal_step(self):
+        """Tout pas non terminal donne une reward négative (REWARD_STEP ou REWARD_BUMP)."""
         env = make_env(seed=0)
         _, reward, done, _ = env.step("UP")
         if not done:
-            assert reward == 0.0
+            assert reward < 0.0
 
     def test_done_false_before_max_steps(self):
         env = DungeonEnv(seed=0, max_steps=100)
@@ -194,6 +195,37 @@ class TestDungeonEnvStep:
         assert env._steps == 1
         env.step("LEFT")
         assert env._steps == 2
+
+    def test_reward_normal_step_is_reward_step(self):
+        """Déplacement réussi sans victoire → reward == REWARD_STEP."""
+        env = make_env(seed=0)
+        direction = moves_from_path(env._state.optimal_path[:2])[0]
+        _, reward, done, _ = env.step(direction)
+        if not done:
+            assert reward == pytest.approx(REWARD_STEP)
+
+    def test_reward_boundary_bump_is_reward_bump(self):
+        """Choc contre le bord de grille → reward == REWARD_BUMP."""
+        env = make_env(seed=0)
+        env._state.char_pos = (0, 0)
+        env._state.exit_pos = (9, 9)
+        _, reward, _, _ = env.step("UP")   # bord supérieur
+        assert reward == pytest.approx(REWARD_BUMP)
+
+    def test_reward_rock_bump_is_reward_bump(self):
+        """Choc contre un rocher → reward == REWARD_BUMP."""
+        from grid import TileType
+        from helpers import FakeGrid
+        from game_state import GameState
+        env = make_env(seed=0)
+        # Forcer une roche à droite du personnage
+        overrides = {(4, 5): TileType.ROCK}
+        fake = FakeGrid(overrides)
+        env._state = GameState(fake, seed=0)
+        env._state.char_pos = (3, 5)
+        env._state.exit_pos = (9, 9)
+        _, reward, _, _ = env.step("RIGHT")   # frappe la roche en (4,5)
+        assert reward == pytest.approx(REWARD_BUMP)
 
 
 # ===========================================================================
@@ -259,15 +291,15 @@ class TestDungeonEnvWin:
             _, _, _, info = env.step(m)
         assert info["won"] is True
 
-    def test_reward_zero_when_max_steps_exceeded_without_win(self):
+    def test_reward_bump_when_max_steps_exceeded_on_boundary(self):
+        """Dernier pas = choc sur bord → reward == REWARD_BUMP même si done=True."""
         env = DungeonEnv(seed=0, max_steps=1)
         env.reset()
-        # Déplacer vers le bord (boundary bump) pour ne pas gagner
         env._state.char_pos = (0, 0)
         env._state.exit_pos = (9, 9)
         _, reward, done, _ = env.step("UP")  # boundary bump
         assert done is True
-        assert reward == 0.0
+        assert reward == REWARD_BUMP
 
 
 # ===========================================================================

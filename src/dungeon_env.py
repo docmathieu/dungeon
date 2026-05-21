@@ -34,6 +34,10 @@ _TILE_ENC: dict[TileType, int] = {
 # Les quatre actions valides
 ACTIONS: tuple[str, ...] = ("LEFT", "RIGHT", "UP", "DOWN")
 
+# Reward shaping — signaux intermédiaires à chaque pas
+REWARD_STEP = -0.01   # déplacement normal (herbe ou eau) sans victoire
+REWARD_BUMP = -0.05   # choc contre un mur ou un bord de grille
+
 
 class DungeonEnv:
     """Interface Gym pour le jeu Dungeon (Phase 1 RL)."""
@@ -67,16 +71,28 @@ class DungeonEnv:
 
         action — "LEFT" / "RIGHT" / "UP" / "DOWN" (insensible à la casse).
         Lève RuntimeError si reset() n'a pas encore été appelé.
+
+        Reward shaping :
+            victoire            → score / 100.0  (1.0 = chemin optimal)
+            déplacement normal  → REWARD_STEP (-0.01)
+            choc mur / bord     → REWARD_BUMP  (-0.05)
         """
         if self._state is None:
             raise RuntimeError("Appeler reset() avant step()")
 
+        pos_before = self._state.char_pos
         self._state.apply_move(action)
         self._steps += 1
 
         won  = self._state.won
         done = won or self._steps >= self._max_steps
-        reward = self._state.score / 100.0 if won else 0.0
+
+        if won:
+            reward = self._state.score / 100.0       # victoire
+        elif self._state.char_pos == pos_before:
+            reward = REWARD_BUMP                      # choc : position inchangée
+        else:
+            reward = REWARD_STEP                      # déplacement normal
 
         info = {
             "score": self._state.score,

@@ -21,3 +21,6 @@ prompt.md
 .pytest_cache/
 .coverage
 htmlcov/
+
+models/*
+logs/*

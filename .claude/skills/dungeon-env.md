@@ -26,7 +26,7 @@ Calls `GameState.create_solvable(seed)`, resets `_steps` to 0, returns `_observe
 3. Computes:
    - `won  = self._state.won`
    - `done = won or self._steps >= self._max_steps`
-   - `reward = self._state.score / 100.0 if won else 0.0`
+   - `reward = score/100.0` si victoire, `REWARD_BUMP (-0.05)` si choc (position inchangée), `REWARD_STEP (-0.01)` sinon
 4. Returns `(_observe(), reward, done, info)`
 
 `info` dict keys: `score`, `moves`, `steps`, `won`.
