@@ -109,20 +109,35 @@ Génère un exécutable Windows autonome via PyInstaller :
 
 ---
 
-## Agents à venir — Roadmap RL
-
-### Agent : dungeon-env *(Phase 1)*
+## Agent : dungeon-env ✅ *(Phase 1 RL)*
+**Skill** : `/dungeon-env`
 **Fichier produit** : `src/dungeon_env.py`
+**Tests** : `tests/test_dungeon_env.py` (43 tests)
 
-Implémentera l'interface Gym (`reset` / `step`) pour l'entraînement RL :
+Interface Gym (`reset` / `step`) wrappant `GameState` pour l'entraînement RL :
+
 ```python
 env = DungeonEnv(seed=42)           # terrain reproductible
 env = DungeonEnv(seed=None)         # terrain aléatoire à chaque reset()
 env = DungeonEnv(seed_pool=[...])   # tirage dans un ensemble fixe
+
 obs              = env.reset()      # → dict {grid, char_pos, exit_pos}
 obs, reward, done, info = env.step("RIGHT")
-# reward = score / 100  (1.0 = chemin optimal)
+# reward = score / 100.0  (1.0 = chemin optimal, 0.0 sinon)
+# done   = True si victoire ou steps >= max_steps (défaut 100)
 ```
+
+Observation :
+- `grid` : list[int] de 100 valeurs (0=HERBE, 1=ROCHE, 2=EAU), ordre ligne-major
+- `char_pos` / `exit_pos` : tuple (x, y)
+
+Contraintes :
+- Aucun import pygame
+- Pas de dépendance numpy (encodage en int Python natif — la couche d'entraînement convertit en tenseur)
+
+---
+
+## Agents à venir — Roadmap RL
 
 ### Agent : train-rl *(Phase 2)*
 **Fichiers produits** : `src/train.py`, `models/`, `logs/`

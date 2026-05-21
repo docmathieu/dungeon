@@ -42,12 +42,14 @@ dungeon/claude/
 │   ├── game_state.py     ← GameState, logique déplacement, scoring, trail
 │   ├── pathfinder.py     ← PathFinder (Dijkstra pondéré)
 │   ├── simulation.py     ← thread de simulation headless (RL)
+│   ├── dungeon_env.py    ← DungeonEnv : interface Gym reset()/step() (Phase 1 RL)
 │   └── ui.py             ← GameUI, rendu pygame, touches fléchées directes
 └── tests/
     ├── conftest.py        ← sys.path setup
     ├── helpers.py         ← FakeGrid partagée
     ├── test_game.py       ← tests Grid, GameState, Simulation, scoring, trail
-    └── test_pathfinder.py ← tests PathFinder
+    ├── test_pathfinder.py ← tests PathFinder
+    └── test_dungeon_env.py ← tests DungeonEnv (43 tests)
 ```
 
 ## Spécification du jeu
@@ -106,7 +108,7 @@ dungeon/claude/
 
 ### Phases de développement
 
-#### Phase 1 — `DungeonEnv` (interface Gym) ← prochaine étape
+#### Phase 1 — `DungeonEnv` (interface Gym) ✅ implémentée
 Fichier : `src/dungeon_env.py`
 ```python
 env = DungeonEnv(seed=42)          # terrain reproductible
@@ -117,7 +119,7 @@ obs  = env.reset()                 # → dict {grid, char_pos, exit_pos}
 obs, reward, done, info = env.step("RIGHT")  # un pas à la fois
 ```
 
-#### Phase 2 — Entraînement headless
+#### Phase 2 — Entraînement headless ← prochaine étape
 - Boucle `multiprocessing.Pool` (centaines de parties en parallèle)
 - Logs JSON : `{"grid_seed": 42, "state_seed": 42, "moves": [...], "score": 87}`
 
