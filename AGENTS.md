@@ -160,6 +160,36 @@ Composants :
 - `{label}` = `seed42` / `pool10` / `random` — checkpoints `ep<N>.pt` tous les 500 épisodes + `final.pt`
 - `--pretrained path/final.pt` : repart des poids d'un run précédent (transfer learning)
 
+### Agent : curriculum ✅ *(Phase 2 — curriculum)*
+**Skill** : `/curriculum`
+**Fichiers produits** : `src/curriculum.py`, `models/`, `logs/`
+**Tests** : `tests/test_curriculum.py` (22 tests)
+
+Entraînement progressif par curriculum : élargit le pool de seeds par étapes, en passant à l'étape
+suivante quand l'agent atteint le win rate cible ou quand `--max-episodes-per-stage` est épuisé.
+
+```bash
+python src/curriculum.py --pool 0,1,2,3,4,5,6,7,8,9 \
+                         --stages 1,3,6,10 \
+                         --max-episodes-per-stage 2000 \
+                         --win-rate-threshold 0.8 \
+                         --lr 3e-4
+```
+
+Composants :
+- `_win_rate(scores, window=100)` — taux de victoire sur les N derniers épisodes (score > 0 = victoire)
+- `_train_stage(...)` — entraîne jusqu'à maîtrise (win rate ≥ seuil sur 100 ep) ou max_episodes
+- `run_curriculum(pool, stages, ...)` — orchestre les étapes, passe `final.pt` comme pretrained
+- Chaque étape produit : `logs/yyyymmdd_hhmm_{label}_ep{N}[_from_{timestamp}].jsonl` + `models/yyyymmdd_hhmm_{label}_ep{N}[_from_{timestamp}]/final.pt`
+- Transfer learning automatique : chaque étape repart des poids de l'étape précédente (`_from_` dans le nom)
+
+Paramètres CLI :
+- `--pool` (obligatoire) : seeds disponibles, ex. `0,1,2,3,4,5,6,7,8,9`
+- `--stages` : seeds par étape (défaut `1,3,6,10`)
+- `--max-episodes-per-stage` : plafond épisodes par étape / timeout (défaut `2000`)
+- `--win-rate-threshold` : taux de victoire cible pour progresser (défaut `0.8`)
+- `--lr` : learning rate (défaut `1e-3`)
+
 ### Agent : replay-model *(Phase 3)*
 Charge un checkpoint `.pt` et rejoue la partie dans pygame via seed + séquence générée par le modèle.
 Lancement prévu : `python src/main.py --seed 42 --replay logs/episode_xxx.jsonl`

@@ -44,14 +44,16 @@ dungeon/claude/
 │   ├── dungeon_env.py    ← DungeonEnv : interface Gym reset()/step() (Phase 1 RL)
 │   ├── model.py          ← DQNetwork MLP 304→128→64→4 (Phase 2 RL)
 │   ├── train.py          ← boucle DQN, ReplayBuffer, DQNAgent, logs JSON (Phase 2 RL)
+│   ├── curriculum.py     ← curriculum progressif par étapes de seeds (Phase 2 RL)
 │   └── ui.py             ← GameUI, rendu pygame, touches fléchées directes
 └── tests/
     ├── conftest.py        ← sys.path setup
     ├── helpers.py         ← FakeGrid partagée
-    ├── test_game.py       ← tests Grid, GameState, Simulation, scoring, trail
+    ├── test_game.py       ← tests Grid, GameState, scoring, trail
     ├── test_pathfinder.py  ← tests PathFinder
     ├── test_dungeon_env.py ← tests DungeonEnv (43 tests)
-    └── test_train.py       ← tests encode_obs, ReplayBuffer, DQNetwork, DQNAgent (35 tests)
+    ├── test_train.py       ← tests encode_obs, ReplayBuffer, DQNetwork, DQNAgent
+    └── test_curriculum.py  ← tests _win_rate, _train_stage, run_curriculum
 ```
 
 ## Spécification du jeu
@@ -171,15 +173,47 @@ eps_decay = (EPSILON_END / EPSILON_START) ** (2.0 / episodes)
 
 **Bug corrigé :** `ε=` → `eps=` dans le print (UnicodeEncodeError cp1252 Windows).
 
-**Prochaine action Phase 2 — Réduire le learning rate :**
-- Hypothèse : `LR=1e-3` trop agressif pour la généralisation multi-seeds
-- Tester `LR=3e-4` avec pool 10 seeds, 10 000 épisodes
-- Si stable → scaler à 100 seeds
+**Résultats Phase 2 (2026-05-27) :**
+| Run | LR | Pretrained | ep 500 | ep 1000 | ep 1500 | ep 2000 |
+|-----|----|-----------|--------|---------|---------|---------|
+| seed42 | 3e-4 | — | 16 | 92 | 52 | 100 |
+| pool10 | 1e-3 | — | 0 | 0 | 0 | 0 |
+| pool10 | 3e-4 | — | 15 | 100 | 0 | 0 |
+| pool10 | 3e-4 | seed42 | 0 | 0 | 0 | 0 |
 
-**À commiter (prochaine session) :**
-- Fix `eps=` (UnicodeEncodeError)
-- Decay adaptatif `eps_decay = (EPSILON_END/EPSILON_START)^(2/episodes)`
-- 2 nouveaux tests (`test_adaptive_decay_*`, `test_seed_pool_runs_without_error`)
+**Diagnostic :** gradients conflictuels multi-seeds résistants au transfer learning.
+**Prochaine action : curriculum progressif** (fichier `src/curriculum.py`).
+
+**Curriculum progressif ✅ implémenté + run effectué (2026-05-27)**
+Fichier : `src/curriculum.py`
+```bash
+python src/curriculum.py --pool 0,1,2,3,4,5,6,7,8,9 \
+                         --stages 1,3,6,10 \
+                         --max-episodes-per-stage 2000 \
+                         --win-rate-threshold 0.8 \
+                         --lr 3e-4
+```
+- Élargit le pool de seeds par étapes (1 → 3 → 6 → 10)
+- Passe à l'étape suivante si win rate ≥ seuil sur les 100 derniers épisodes
+- Fallback : `--max-episodes-per-stage` si le seuil n'est jamais atteint
+- Transfer learning automatique entre étapes via `_from_` dans le nom des fichiers
+
+**Résultats curriculum (2026-05-27) :**
+| Stage | Pool | Episodes | Win rate max | Win rate final | Notes |
+|-------|------|----------|-------------|----------------|-------|
+| 1 | seed0 | 598 | **80%** | 80% ep499-598 | Mastery atteinte ! Arrêt précoce |
+| 2 | pool3 | 2000 | 35% | 9% | Transfer aide (30% dès ep1), pas de mastery |
+| 3 | pool6 | 2000 | 58% | 12% | Pic ep901-1000, catastrophic forgetting ep1200 |
+| 4 | pool10 | 2000 | 17% | 3% | Forgetting immédiat, pool trop grand |
+
+**Diagnostic curriculum :** le curriculum améliore le démarrage (Stage 3 part à 39% vs 0% sans),
+mais le catastrophic forgetting frappe toujours à mi-parcours pour les pools > 1 seed.
+Le réseau MLP 304→128→64→4 semble insuffisant pour mémoriser plusieurs politiques à la fois.
+
+**Pistes suivantes :**
+- Augmenter la capacité du réseau (plus de neurones / couches)
+- Experience replay prioritaire (PER) pour équilibrer les seeds
+- Réduire le learning rate pour les stages multi-seeds (ex. 1e-4)
 
 #### Phase 3 — Visualisation pygame *(après stabilisation Phase 2)*
 - Charger un checkpoint `.pt` (PyTorch)
@@ -187,13 +221,13 @@ eps_decay = (EPSILON_END / EPSILON_START) ** (2.0 / episodes)
 - Lancement : `python src/main.py --seed 42 --replay logs/episode_xxx.jsonl`
 
 #### Phase 4 — Amélioration itérative
-- Réduire le learning rate (1e-3 → 3e-4) ← prochaine étape concrète
-- Curriculum : herbe seule → roches → eau → full random
-- Augmenter BUFFER_SIZE si instabilité persiste avec seed_pool
+- ~~Curriculum progressif seeds (1→3→6→10)~~ ✅ effectué
+- Augmenter capacité réseau si forgetting persiste
+- Prioritized Experience Replay (PER)
 
 ### Stratégie terrains (détail)
 | Option | Description | Quand |
 |--------|-------------|-------|
-| B — Pool fixe | pool 10–100 seeds, decay adaptatif | ← En cours |
-| C — Curriculum | Difficulté progressive par phases | Moyen terme |
+| B — Pool fixe | pool 10–100 seeds, decay adaptatif | Référence |
+| C — Curriculum | Difficulté progressive par étapes | ← En cours |
 | A — Full random | Nouveau terrain à chaque épisode | Long terme |
