@@ -50,15 +50,17 @@ BUFFER_SIZE=10_000, TARGET_UPDATE_FREQ=100, CHECKPOINT_FREQ=500
 ```
 
 ## Output naming convention
-- Log  : `logs/yyyymmdd_hhmm_{label}_ep{N}.jsonl`
-- Models: `models/yyyymmdd_hhmm_{label}_ep{N}/ep500.pt … final.pt`
+- Log  : `logs/yyyymmdd_hhmm_{label}_ep{N}[_from_{timestamp}].jsonl`
+- Models: `models/yyyymmdd_hhmm_{label}_ep{N}[_from_{timestamp}]/ep500.pt … final.pt`
 - `{label}` = `seed42` | `pool10` | `random`
+- `_from_{timestamp}` présent uniquement si `--pretrained` est fourni
 
 ## CLI entry point
 ```bash
-python src/train.py --episodes 5000 --seed 42
-python src/train.py --episodes 10000 --seed-pool 0,1,2,3
-python src/train.py --episodes 5000
+python src/train.py --episodes 2000 --seed 42
+python src/train.py --episodes 2000 --seed-pool 0,1,2,3 --lr 3e-4
+python src/train.py --episodes 2000 --seed-pool 0,1,2,3 --lr 3e-4 \
+                    --pretrained models/20260527_1222_seed42_ep2000/final.pt
 ```
 
 ## Constraints

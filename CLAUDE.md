@@ -131,9 +131,10 @@ python src/train.py --episodes 3000 --seed 42
 - `DQNetwork` MLP : 304 → 128 → 64 → 4 sorties (Q-values)
 - `DQNAgent` : epsilon-greedy (ε 1.0→0.05), réseau cible, replay buffer 10 000
 - Reward shaping : `REWARD_STEP=-0.01`, `REWARD_BUMP=-0.05`
-- Logs JSON dans `logs/yyyymmdd_hhmm_{label}_ep{N}.jsonl` : `{"episode", "score", "moves", "epsilon", "reward"}`
-- Checkpoints dans `models/yyyymmdd_hhmm_{label}_ep{N}/ep<N>.pt` + `final.pt`
+- Logs JSON dans `logs/yyyymmdd_hhmm_{label}_ep{N}[_from_{timestamp}].jsonl` : `{"episode", "score", "moves", "epsilon", "reward"}`
+- Checkpoints dans `models/yyyymmdd_hhmm_{label}_ep{N}[_from_{timestamp}]/ep<N>.pt` + `final.pt`
 - `{label}` = `seed42` / `pool10` / `random` selon le mode de seed
+- `_from_{timestamp}` présent uniquement si `--pretrained` est utilisé
 
 **Résultats run seed=42, 3 000 épisodes (2026-05-21) :**
 | Bloc | Victoires | Score moy | Moves moy |

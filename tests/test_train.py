@@ -2,6 +2,7 @@
 
 import io
 import json
+from pathlib import Path
 import pytest
 import torch
 
@@ -14,6 +15,7 @@ from train import (
     train,
     _run_episode,
     _log_episode,
+    _pretrained_label,
     _run_label,
     _run_name,
     _save_checkpoint,
@@ -235,6 +237,23 @@ class TestDQNAgent:
 # _run_label / _run_name
 # ===========================================================================
 
+class TestPretrainedLabel:
+    def test_none_returns_empty(self):
+        assert _pretrained_label(None) == ""
+
+    def test_extracts_timestamp_from_seed_path(self):
+        p = Path("models/20260527_1222_seed42_ep2000/final.pt")
+        assert _pretrained_label(p) == "20260527_1222"
+
+    def test_extracts_timestamp_from_pool_path(self):
+        p = Path("models/20260527_1430_pool10_ep3000/ep500.pt")
+        assert _pretrained_label(p) == "20260527_1430"
+
+    def test_length_is_13(self):
+        p = Path("models/20260527_1222_seed42_ep2000/final.pt")
+        assert len(_pretrained_label(p)) == 13
+
+
 class TestRunLabel:
     def test_seed_label(self):
         assert _run_label(42, None) == "seed42"
@@ -266,6 +285,14 @@ class TestRunName:
     def test_contains_episodes(self):
         name = _run_name("20260527_1430", 1234, 0, None)
         assert name.endswith("_ep1234")
+
+    def test_with_pretrained_label(self):
+        name = _run_name("20260527_1300", 2000, None, list(range(10)), "20260527_1222")
+        assert name == "20260527_1300_pool10_ep2000_from_20260527_1222"
+
+    def test_without_pretrained_no_suffix(self):
+        name = _run_name("20260527_1300", 2000, None, list(range(10)), "")
+        assert name == "20260527_1300_pool10_ep2000"
 
 
 # ===========================================================================
@@ -452,6 +479,25 @@ class TestTrainLoop:
         # Après 'episodes' décays, epsilon devrait être proche de EPSILON_END
         # (le decay est calculé pour atteindre EPSILON_END à episodes/2)
         assert agent.epsilon == pytest.approx(EPSILON_END, abs=0.01)
+
+    def test_pretrained_weights_are_loaded(self, tmp_path):
+        """Les poids du checkpoint pretrained doivent être chargés avant l'entraînement."""
+        pre_dir = tmp_path / "20260527_1222_seed42_ep2000"
+        pre_dir.mkdir()
+        net = DQNetwork()
+        for p in net.parameters():
+            p.data.fill_(0.5)
+        torch.save(net.state_dict(), pre_dir / "final.pt")
+
+        agent = train(
+            episodes   = 2,
+            seed       = 42,
+            pretrained = pre_dir / "final.pt",
+            log_path   = tmp_path / "t.jsonl",
+            model_dir  = tmp_path / "models",
+            verbose    = False,
+        )
+        assert isinstance(agent, DQNAgent)
 
     def test_seed_pool_runs_without_error(self, tmp_path):
         """train() avec seed_pool doit compléter sans erreur."""

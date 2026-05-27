@@ -1,15 +1,19 @@
 """train.py — boucle d'entraînement DQN pour DungeonEnv.
 
 Utilisation :
-    python src/train.py                          # 5000 épisodes, terrain aléatoire
-    python src/train.py --episodes 1000          # nombre d'épisodes personnalisé
-    python src/train.py --seed 42                # seed fixe (même terrain à chaque épisode)
-    python src/train.py --seed-pool 0,1,2,...    # pool de seeds fixes
+    python src/train.py                                        # 5000 épisodes, terrain aléatoire
+    python src/train.py --episodes 2000 --seed 42              # seed fixe, 2000 épisodes
+    python src/train.py --episodes 2000 --seed-pool 0,1,2,...  # pool de seeds fixes
+    python src/train.py --episodes 2000 --lr 3e-4              # learning rate réduit
+    python src/train.py --episodes 2000 --seed-pool 0,1,2,... \
+                        --lr 3e-4 \
+                        --pretrained models/20260527_1222_seed42_ep2000/final.pt
 
 Produits :
-    models/dqn_ep<N>.pt    checkpoints périodiques (tous les 500 épisodes)
-    models/dqn_final.pt    checkpoint final
-    logs/train.jsonl       une ligne JSON par épisode
+    logs/yyyymmdd_hhmm_{label}_ep{N}[_from_{timestamp}].jsonl   une ligne JSON par épisode
+    models/yyyymmdd_hhmm_{label}_ep{N}[_from_{timestamp}]/      dossier du run
+        ep500.pt … ep<N>.pt                                      checkpoints périodiques
+        final.pt                                                 checkpoint final
 """
 
 import argparse
@@ -204,9 +208,33 @@ def _run_label(seed: int | None, seed_pool: list[int] | None) -> str:
     return "random"
 
 
-def _run_name(timestamp: str, episodes: int, seed: int | None, seed_pool: list[int] | None) -> str:
-    """Construit l'identifiant unique d'un run : '20260527_1430_seed42_ep3000'."""
-    return f"{timestamp}_{_run_label(seed, seed_pool)}_ep{episodes}"
+def _pretrained_label(pretrained: "Path | None") -> str:
+    """Extrait le timestamp du dossier pretrained pour le suffixe _from_.
+
+    Path('models/20260527_1222_seed42_ep2000/final.pt') → '20260527_1222'
+    None → ''
+    """
+    if pretrained is None:
+        return ""
+    return pretrained.parent.name[:13]
+
+
+def _run_name(
+    timestamp:        str,
+    episodes:         int,
+    seed:             int | None,
+    seed_pool:        list[int] | None,
+    pretrained_label: str = "",
+) -> str:
+    """Construit l'identifiant unique d'un run.
+
+    Sans pretrained : '20260527_1430_seed42_ep3000'
+    Avec pretrained : '20260527_1300_pool10_ep2000_from_20260527_1222'
+    """
+    name = f"{timestamp}_{_run_label(seed, seed_pool)}_ep{episodes}"
+    if pretrained_label:
+        name += f"_from_{pretrained_label}"
+    return name
 
 
 # ---------------------------------------------------------------------------
@@ -290,6 +318,8 @@ def train(
     episodes:   int              = EPISODES,
     seed:       int | None       = None,
     seed_pool:  list[int] | None = None,
+    lr:         float            = LEARNING_RATE,
+    pretrained: Path | None      = None,
     log_path:   Path             = Path("logs/train.jsonl"),
     model_dir:  Path             = Path("models"),
     verbose:    bool             = True,
@@ -303,7 +333,11 @@ def train(
     eps_decay = (EPSILON_END / EPSILON_START) ** (2.0 / episodes)
 
     env   = DungeonEnv(seed=seed, seed_pool=seed_pool, max_steps=MAX_STEPS)
-    agent = DQNAgent(eps_decay=eps_decay)
+    agent = DQNAgent(lr=lr, eps_decay=eps_decay)
+
+    if pretrained is not None:
+        agent.q_net.load_state_dict(torch.load(pretrained, weights_only=True))
+        agent.sync_target()
     buf   = ReplayBuffer(BUFFER_SIZE)
     t0    = time.time()
 
@@ -330,23 +364,30 @@ def train(
 
 def _parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="Entraînement DQN — Dungeon POC")
-    p.add_argument("--episodes",  type=int, default=EPISODES,
+    p.add_argument("--episodes",   type=int,   default=EPISODES,
                    help=f"Nombre d'épisodes (défaut : {EPISODES})")
-    p.add_argument("--seed",      type=int, default=None,
+    p.add_argument("--seed",       type=int,   default=None,
                    help="Seed fixe — même terrain à chaque épisode")
-    p.add_argument("--seed-pool", type=str, default=None,
+    p.add_argument("--seed-pool",  type=str,   default=None,
                    help="Pool de seeds, ex : 0,1,2,3")
+    p.add_argument("--lr",         type=float, default=LEARNING_RATE,
+                   help=f"Learning rate (défaut : {LEARNING_RATE})")
+    p.add_argument("--pretrained", type=Path,  default=None,
+                   help="Checkpoint .pt à utiliser comme point de départ")
     return p.parse_args()
 
 
 if __name__ == "__main__":
-    args = _parse_args()
-    pool = [int(s) for s in args.seed_pool.split(",")] if args.seed_pool else None
-    run  = _run_name(_now(), args.episodes, args.seed, pool)
+    args      = _parse_args()
+    pool      = [int(s) for s in args.seed_pool.split(",")] if args.seed_pool else None
+    pre_label = _pretrained_label(args.pretrained)
+    run       = _run_name(_now(), args.episodes, args.seed, pool, pre_label)
     train(
-        episodes  = args.episodes,
-        seed      = args.seed,
-        seed_pool = pool,
-        log_path  = Path("logs") / f"{run}.jsonl",
-        model_dir = Path("models") / run,
+        episodes   = args.episodes,
+        seed       = args.seed,
+        seed_pool  = pool,
+        lr         = args.lr,
+        pretrained = args.pretrained,
+        log_path   = Path("logs") / f"{run}.jsonl",
+        model_dir  = Path("models") / run,
     )
