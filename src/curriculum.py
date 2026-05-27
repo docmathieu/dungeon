@@ -28,6 +28,7 @@ sys.path.insert(0, os.path.dirname(__file__))
 from train import (
     DQNAgent,
     ReplayBuffer,
+    StratifiedReplayBuffer,
     DungeonEnv,
     _log_episode,
     _now,
@@ -93,7 +94,8 @@ def _train_stage(
     eps_decay = (EPSILON_END / EPSILON_START) ** (2.0 / max_episodes)
     env       = DungeonEnv(seed_pool=stage_pool, max_steps=MAX_STEPS)
     agent     = DQNAgent(lr=lr, eps_decay=eps_decay)
-    buf       = ReplayBuffer(BUFFER_SIZE)
+    buf       = (StratifiedReplayBuffer(BUFFER_SIZE, n_seeds=len(stage_pool))
+                 if len(stage_pool) > 1 else ReplayBuffer(BUFFER_SIZE))
     t0        = time.time()
 
     if pretrained is not None:

@@ -11,6 +11,7 @@ from dungeon_env import DungeonEnv
 from train import (
     encode_obs,
     ReplayBuffer,
+    StratifiedReplayBuffer,
     DQNAgent,
     train,
     _run_episode,
@@ -187,6 +188,69 @@ class TestDQNetwork:
         net = DQNetwork()
         out = net(torch.zeros(INPUT_DIM))
         assert out.dtype == torch.float32
+
+
+# ===========================================================================
+# StratifiedReplayBuffer
+# ===========================================================================
+
+class TestStratifiedReplayBuffer:
+    def test_initial_empty(self):
+        buf = StratifiedReplayBuffer(capacity=300, n_seeds=3)
+        assert len(buf) == 0
+
+    def test_push_routes_to_correct_sub_buffer(self):
+        buf = StratifiedReplayBuffer(capacity=300, n_seeds=3)
+        s = _dummy_state()
+        buf.push(s, 0, 1.0, s, False, seed_idx=1)
+        assert len(buf._subs[0]) == 0
+        assert len(buf._subs[1]) == 1
+        assert len(buf._subs[2]) == 0
+
+    def test_len_reflects_minimum_sub_buffer(self):
+        """len() = min(sous-buffer) × n_seeds."""
+        buf = StratifiedReplayBuffer(capacity=300, n_seeds=3)
+        s = _dummy_state()
+        for _ in range(10):
+            buf.push(s, 0, 0.0, s, False, seed_idx=0)
+        assert len(buf) == 0   # subs 1 et 2 vides → min=0
+        for _ in range(5):
+            buf.push(s, 0, 0.0, s, False, seed_idx=1)
+            buf.push(s, 0, 0.0, s, False, seed_idx=2)
+        assert len(buf) == 15  # min=5, n=3 → 15
+
+    def test_sample_balances_seeds(self):
+        """Le batch contient exactement batch_size // n_seeds transitions par seed."""
+        buf = StratifiedReplayBuffer(capacity=300, n_seeds=2)
+        s = _dummy_state()
+        for _ in range(50):
+            buf.push(s, 0, 0.0, s, False, seed_idx=0)   # action=0 → seed 0
+            buf.push(s, 1, 0.0, s, False, seed_idx=1)   # action=1 → seed 1
+        batch = buf.sample(64)
+        n0 = sum(1 for t in batch if t.action == 0)
+        n1 = sum(1 for t in batch if t.action == 1)
+        assert n0 == 32 and n1 == 32
+
+    def test_sample_raises_when_sub_buffer_too_small(self):
+        buf = StratifiedReplayBuffer(capacity=300, n_seeds=2)
+        s = _dummy_state()
+        for _ in range(10):
+            buf.push(s, 0, 0.0, s, False, seed_idx=0)
+        # seed_idx=1 vide → ValueError
+        with pytest.raises(ValueError):
+            buf.sample(32)
+
+    def test_capacity_sums_sub_capacities(self):
+        buf = StratifiedReplayBuffer(capacity=300, n_seeds=3)
+        assert buf.capacity == 300   # 100 × 3
+
+    def test_evicts_old_entries_per_sub_buffer(self):
+        """Chaque sous-buffer possède sa propre capacité circulaire."""
+        buf = StratifiedReplayBuffer(capacity=60, n_seeds=2)   # 30 par sub
+        s = _dummy_state()
+        for _ in range(40):
+            buf.push(s, 0, 0.0, s, False, seed_idx=0)
+        assert len(buf._subs[0]) == 30   # plafonné à sub_cap
 
 
 # ===========================================================================

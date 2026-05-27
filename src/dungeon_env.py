@@ -52,12 +52,13 @@ class DungeonEnv:
     ):
         if seed_pool is not None and len(seed_pool) == 0:
             raise ValueError("seed_pool ne doit pas être vide")
-        self._seed       = seed
-        self._seed_pool  = seed_pool
-        self._max_steps  = max_steps
+        self._seed            = seed
+        self._seed_pool       = seed_pool
+        self._max_steps       = max_steps
         self._state: GameState | None = None
-        self._steps: int = 0
-        self._rng = random.Random()   # utilisé uniquement pour les tirages seed_pool
+        self._steps: int      = 0
+        self._rng             = random.Random()   # utilisé uniquement pour les tirages seed_pool
+        self._current_seed_idx: int = 0           # index dans seed_pool du dernier reset()
 
     # ------------------------------------------------------------------
     def reset(self) -> dict:
@@ -109,10 +110,17 @@ class DungeonEnv:
         return ACTIONS
 
     # ------------------------------------------------------------------
+    @property
+    def current_seed_idx(self) -> int:
+        """Index dans seed_pool du seed utilisé pour l'épisode courant (0 si pas de pool)."""
+        return self._current_seed_idx
+
     def _pick_seed(self) -> int | None:
-        """Choisit le seed pour le prochain épisode."""
+        """Choisit le seed pour le prochain épisode et met à jour current_seed_idx."""
         if self._seed_pool is not None:
-            return self._rng.choice(self._seed_pool)
+            self._current_seed_idx = self._rng.randrange(len(self._seed_pool))
+            return self._seed_pool[self._current_seed_idx]
+        self._current_seed_idx = 0
         return self._seed
 
     def _observe(self) -> dict:

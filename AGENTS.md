@@ -153,6 +153,7 @@ python src/train.py --episodes 5000 --seed-pool 0,1,2,...
 Composants :
 - `DQNetwork` — MLP PyTorch : 304 → Dense(256,ReLU) → Dense(128,ReLU) → Dense(64,ReLU) → 4 sorties
 - `ReplayBuffer` — buffer circulaire FIFO, capacité 10 000
+- `StratifiedReplayBuffer(capacity, n_seeds)` — un sous-buffer par seed, garantit `batch_size // n_seeds` transitions par seed dans chaque batch
 - `DQNAgent` — epsilon-greedy (1.0→0.05), réseau cible synchronisé tous les 100 épisodes
 - `encode_obs()` — one-hot grille (300) + positions normalisées (4) = 304 floats
 - Logs JSON : `{"episode", "score", "moves", "epsilon", "reward"}` (un par épisode)

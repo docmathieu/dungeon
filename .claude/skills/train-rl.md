@@ -16,9 +16,16 @@ Generate `src/model.py` and `src/train.py` — DQN training loop for DungeonEnv.
 
 **`ReplayBuffer(capacity)`**
 - Internal `collections.deque(maxlen=capacity)`
-- `push(state, action, reward, next_state, done)`
+- `push(state, action, reward, next_state, done, seed_idx=0)` — `seed_idx` ignored, kept for interface compatibility
 - `sample(batch_size) → list[Transition]` — raises `ValueError` if buffer too small
 - `__len__`, `capacity` property
+
+**`StratifiedReplayBuffer(capacity, n_seeds)`**
+- One `deque(maxlen=capacity // n_seeds)` per seed
+- `push(state, action, reward, next_state, done, seed_idx)` — routes to sub-buffer `seed_idx`
+- `sample(batch_size)` — draws `batch_size // n_seeds` transitions from each sub-buffer (balanced)
+- `__len__` = `min(sub-buffer sizes) × n_seeds` — compatible with `DQNAgent.learn()` readiness check
+- Used automatically by `_train_stage` when `len(stage_pool) > 1`
 
 **`DQNAgent`**
 - Two `DQNetwork` instances: `q_net` (trained) and `target_net` (frozen copy)

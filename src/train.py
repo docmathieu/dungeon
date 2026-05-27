@@ -104,6 +104,7 @@ class ReplayBuffer:
         reward:     float,
         next_state: torch.Tensor,
         done:       bool,
+        seed_idx:   int = 0,   # ignoré — présent pour compatibilité avec StratifiedReplayBuffer
     ) -> None:
         self._buf.append(Transition(state, action, reward, next_state, done))
 
@@ -119,6 +120,51 @@ class ReplayBuffer:
     @property
     def capacity(self) -> int:
         return self._buf.maxlen
+
+
+class StratifiedReplayBuffer:
+    """Buffer circulaire stratifié : un sous-buffer par seed.
+
+    Garantit que chaque seed contribue également au batch d'entraînement,
+    évitant que les seeds à forte erreur TD dominent les mises à jour de gradient.
+
+    `len()` retourne `min_sous_buffer × n_seeds` : dépasse batch_size seulement
+    quand chaque sous-buffer peut fournir sa quote-part (batch_size // n_seeds).
+    """
+
+    def __init__(self, capacity: int = BUFFER_SIZE, n_seeds: int = 1):
+        sub_cap      = max(1, capacity // n_seeds)
+        self._subs   = [collections.deque(maxlen=sub_cap) for _ in range(n_seeds)]
+        self._n      = n_seeds
+
+    def push(
+        self,
+        state:      torch.Tensor,
+        action:     int,
+        reward:     float,
+        next_state: torch.Tensor,
+        done:       bool,
+        seed_idx:   int = 0,
+    ) -> None:
+        self._subs[seed_idx].append(Transition(state, action, reward, next_state, done))
+
+    def sample(self, batch_size: int) -> list[Transition]:
+        """Tire batch_size // n_seeds transitions par seed (sans remise).
+        Lève ValueError si un sous-buffer est trop petit.
+        """
+        per_seed = batch_size // self._n
+        batch: list[Transition] = []
+        for sub in self._subs:
+            batch += random.sample(sub, per_seed)   # ValueError si trop petit
+        return batch
+
+    def __len__(self) -> int:
+        """Taille utilisable = minimum par sous-buffer × n_seeds."""
+        return min(len(s) for s in self._subs) * self._n
+
+    @property
+    def capacity(self) -> int:
+        return sum(s.maxlen for s in self._subs)
 
 
 # ---------------------------------------------------------------------------
@@ -251,10 +297,11 @@ def _run_name(
 def _run_episode(
     env:   "DungeonEnv",
     agent: DQNAgent,
-    buf:   ReplayBuffer,
+    buf:   "ReplayBuffer | StratifiedReplayBuffer",
 ) -> tuple[list[str], float, dict]:
     """Joue un épisode complet. Retourne (moves, ep_reward, info)."""
     obs       = env.reset()
+    seed_idx  = env.current_seed_idx   # index du seed choisi pour cet épisode
     state     = encode_obs(obs)
     done      = False
     moves:    list[str] = []
@@ -266,7 +313,7 @@ def _run_episode(
         next_obs, reward, done, info = env.step(action)
         next_state                   = encode_obs(next_obs)
 
-        buf.push(state, action_idx, reward, next_state, done)
+        buf.push(state, action_idx, reward, next_state, done, seed_idx=seed_idx)
         agent.learn(buf)
 
         state      = next_state

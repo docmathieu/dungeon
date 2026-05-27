@@ -231,10 +231,32 @@ Catastrophic forgetting reste présent mais atténué par lr=1e-4 et la capacit�
 - Rejouer la partie dans l'UI via seed + séquence de mouvements générée par le modèle
 - Lancement : `python src/main.py --seed 42 --replay logs/episode_xxx.jsonl`
 
+**Replay stratifié ✅ implémenté + run effectué (2026-05-27)**
+`StratifiedReplayBuffer(capacity, n_seeds)` : un sous-buffer par seed, batch toujours équilibré.
+Utilisé automatiquement par `_train_stage` quand `len(stage_pool) > 1`.
+
+Résultats comparés (sans vs avec stratified, mêmes hyperparamètres) :
+| Stage | Win rate max (sans) | Win rate max (avec) | Win rate final (sans) | Win rate final (avec) |
+|-------|--------------------|--------------------|----------------------|----------------------|
+| 1 seed | 80% | 80% | 80% | 80% |
+| pool3 | 43% | **55%** ep1-200 | 9% | 0% |
+| pool6 | 24% | 21% | **22%** | 13% |
+| pool10 | 32% | 21% | 9% | **21%** |
+
+**Diagnostic :** le buffer stratifié améliore le démarrage (pool3 : 55% vs 37% sur ep1-200)
+et la fin de pool10 (42% vs 24% sur les 200 derniers épisodes). Mais le catastrophic forgetting
+reste dominant : le buffer équilibré ne peut pas résoudre les **gradients conflictuels** (deux
+seeds peuvent exiger des actions opposées dans des états similaires).
+La racine du problème n'est pas le déséquilibre du buffer mais l'architecture MLP partagée.
+
+**Pistes restantes :**
+- Augmenter `--max-episodes-per-stage` pour laisser le buffer stratifié converger (pool10 était en progression en fin de run)
+- Elastic Weight Consolidation (EWC) pour protéger les poids déjà appris
+
 #### Phase 4 — Amélioration itérative
 - ~~Curriculum progressif seeds (1→3→6→10)~~ ✅ effectué
 - ~~Augmenter capacité réseau~~ ✅ 304→256→128→64→4
-- Prioritized Experience Replay (PER)
+- ~~Replay stratifié par seed~~ ✅ `StratifiedReplayBuffer` implémenté et testé
 
 ### Stratégie terrains (détail)
 | Option | Description | Quand |

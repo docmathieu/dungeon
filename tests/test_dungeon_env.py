@@ -371,3 +371,36 @@ class TestDungeonEnvObservation:
             x = idx % Grid.WIDTH
             y = idx // Grid.WIDTH
             assert expected == enc[grid.get_tile(x, y)]
+
+
+# ===========================================================================
+# current_seed_idx
+# ===========================================================================
+
+class TestCurrentSeedIdx:
+    def test_default_zero_before_reset(self):
+        """Avant tout reset(), current_seed_idx vaut 0."""
+        env = DungeonEnv(seed_pool=[10, 20, 30])
+        assert env.current_seed_idx == 0
+
+    def test_no_pool_always_zero(self):
+        """Sans seed_pool, current_seed_idx reste 0 après reset()."""
+        env = DungeonEnv(seed=42)
+        for _ in range(5):
+            env.reset()
+            assert env.current_seed_idx == 0
+
+    def test_pool_idx_in_valid_range(self):
+        """Avec seed_pool de taille N, current_seed_idx est dans [0, N[."""
+        pool = [10, 20, 30]
+        env  = DungeonEnv(seed_pool=pool)
+        for _ in range(20):
+            env.reset()
+            assert 0 <= env.current_seed_idx < len(pool)
+
+    def test_pool_idx_changes_across_resets(self):
+        """Sur suffisamment de resets, plusieurs index distincts sont observés."""
+        env = DungeonEnv(seed_pool=list(range(10)))
+        seen = {env.reset() and env.current_seed_idx for _ in range(50)}
+        assert len(seen) > 1   # au moins 2 seeds différents tirés
+
