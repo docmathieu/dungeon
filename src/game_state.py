@@ -21,28 +21,36 @@ class GameState:
         self.score: int = 0
         self.info: str = ""
         self.won: bool = False
+        self._optimal_cost: int | None = None
+        self.optimal_path: list[tuple[int, int]] | None = None
+        self._compute_optimal_path()
+        self.trail: list[tuple[int, int]] = [self.char_pos]
 
-        _moves = PathFinder().find_shortest_path(grid, self.char_pos, self.exit_pos)
-        if _moves is not None:
+    def _compute_optimal_path(self) -> None:
+        moves = PathFinder().find_shortest_path(self.grid, self.char_pos, self.exit_pos)
+        if moves is not None:
             x, y = self.char_pos
-            _positions = [self.char_pos]
-            _cost = 0
-            for _move in _moves:
-                dx, dy = DIRECTIONS[_move]
+            positions = [self.char_pos]
+            cost = 0
+            for move in moves:
+                dx, dy = DIRECTIONS[move]
                 x, y = x + dx, y + dy
-                _cost += grid.move_cost(x, y)
-                _positions.append((x, y))
-            self._optimal_cost: int | None = _cost
-            self.optimal_path: list[tuple[int, int]] | None = _positions
+                cost += self.grid.move_cost(x, y)
+                positions.append((x, y))
+            self._optimal_cost = cost
+            self.optimal_path = positions
         else:
             self._optimal_cost = None
             self.optimal_path = None
-        self.trail: list[tuple[int, int]] = [self.char_pos]
 
     def is_solvable(self) -> bool:
         """Return True if a path exists from character position to exit."""
         return self._optimal_cost is not None
 
+    """
+    le __init__ de cette classe est appelé uniquement depuis cette méthode @classmethod.
+    'cls' correspond à 'GameState'
+    """
     @classmethod
     def create_solvable(cls, seed: int | None = None) -> "GameState":
         """Return a GameState guaranteed to have a path from character to exit.

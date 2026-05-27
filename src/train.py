@@ -43,7 +43,7 @@ LEARNING_RATE      = 1e-3
 GAMMA              = 0.99      # facteur d'actualisation des récompenses futures
 EPSILON_START      = 1.0       # exploration initiale (100 % aléatoire)
 EPSILON_END        = 0.05      # exploration minimale (5 % aléatoire)
-EPSILON_DECAY      = 0.995     # multiplicateur appliqué après chaque épisode
+EPSILON_DECAY      = 0.995     # valeur de référence (remplacée par decay adaptatif dans train())
 BUFFER_SIZE        = 10_000    # capacité du replay buffer
 TARGET_UPDATE_FREQ = 100       # synchronisation réseau cible (épisodes)
 CHECKPOINT_FREQ    = 500       # sauvegarde checkpoint (épisodes)
@@ -187,8 +187,104 @@ class DQNAgent:
 
 
 # ---------------------------------------------------------------------------
+# Nommage des runs
+# ---------------------------------------------------------------------------
+
+def _now() -> str:
+    """Retourne le timestamp courant au format yyyymmdd_hhmm."""
+    return time.strftime("%Y%m%d_%H%M")
+
+
+def _run_label(seed: int | None, seed_pool: list[int] | None) -> str:
+    """Retourne le label de seed : 'seed42', 'pool10', ou 'random'."""
+    if seed_pool is not None:
+        return f"pool{len(seed_pool)}"
+    if seed is not None:
+        return f"seed{seed}"
+    return "random"
+
+
+def _run_name(timestamp: str, episodes: int, seed: int | None, seed_pool: list[int] | None) -> str:
+    """Construit l'identifiant unique d'un run : '20260527_1430_seed42_ep3000'."""
+    return f"{timestamp}_{_run_label(seed, seed_pool)}_ep{episodes}"
+
+
+# ---------------------------------------------------------------------------
 # Boucle d'entraînement
 # ---------------------------------------------------------------------------
+
+def _run_episode(
+    env:   "DungeonEnv",
+    agent: DQNAgent,
+    buf:   ReplayBuffer,
+) -> tuple[list[str], float, dict]:
+    """Joue un épisode complet. Retourne (moves, ep_reward, info)."""
+    obs       = env.reset()
+    state     = encode_obs(obs)
+    done      = False
+    moves:    list[str] = []
+    ep_reward = 0.0
+
+    while not done:
+        action_idx                   = agent.select_action(state)
+        action                       = ACTIONS[action_idx]
+        next_obs, reward, done, info = env.step(action)
+        next_state                   = encode_obs(next_obs)
+
+        buf.push(state, action_idx, reward, next_state, done)
+        agent.learn(buf)
+
+        state      = next_state
+        ep_reward += reward
+        moves.append(action)
+
+    return moves, ep_reward, info
+
+
+def _log_episode(
+    log_file,
+    ep:       int,
+    info:     dict,
+    moves:    list[str],
+    agent:    DQNAgent,
+    ep_reward: float,
+) -> None:
+    """Écrit une ligne JSON dans le fichier de log."""
+    entry = {
+        "episode": ep,
+        "score":   info["score"],
+        "moves":   moves,
+        "epsilon": round(agent.epsilon, 4),
+        "reward":  round(ep_reward, 4),
+    }
+    log_file.write(json.dumps(entry) + "\n")
+
+
+def _save_checkpoint(
+    agent:     DQNAgent,
+    model_dir: Path,
+    ep:        int,
+    episodes:  int,
+    score:     int,
+    t0:        float,
+    verbose:   bool,
+    final:     bool = False,
+) -> None:
+    """Sauvegarde les poids du réseau. final=True pour le checkpoint final."""
+    path = model_dir / ("final.pt" if final else f"ep{ep}.pt")
+    torch.save(agent.q_net.state_dict(), path)
+    if verbose:
+        elapsed = time.time() - t0
+        if final:
+            print(f"Terminé — {episodes} épisodes en {elapsed:.1f}s")
+        else:
+            print(
+                f"Ep {ep:>6}/{episodes}  "
+                f"score={score:>3}  "
+                f"eps={agent.epsilon:.3f}  "
+                f"t={elapsed:.0f}s"
+            )
+
 
 def train(
     episodes:   int              = EPISODES,
@@ -202,64 +298,29 @@ def train(
     log_path.parent.mkdir(parents=True, exist_ok=True)
     model_dir.mkdir(parents=True, exist_ok=True)
 
+    # Decay adaptatif : epsilon atteint EPSILON_END à la moitié des épisodes,
+    # quelle que soit la taille du pool.
+    eps_decay = (EPSILON_END / EPSILON_START) ** (2.0 / episodes)
+
     env   = DungeonEnv(seed=seed, seed_pool=seed_pool, max_steps=MAX_STEPS)
-    agent = DQNAgent()
+    agent = DQNAgent(eps_decay=eps_decay)
     buf   = ReplayBuffer(BUFFER_SIZE)
     t0    = time.time()
 
     with open(log_path, "w") as log_file:
         for ep in range(1, episodes + 1):
-            obs       = env.reset()
-            state     = encode_obs(obs)
-            done      = False
-            moves:    list[str] = []
-            ep_reward = 0.0
-
-            while not done:
-                action_idx               = agent.select_action(state)
-                action                   = ACTIONS[action_idx]
-                next_obs, reward, done, info = env.step(action)
-                next_state               = encode_obs(next_obs)
-
-                buf.push(state, action_idx, reward, next_state, done)
-                agent.learn(buf)
-
-                state      = next_state
-                ep_reward += reward
-                moves.append(action)
-
+            moves, ep_reward, info = _run_episode(env, agent, buf)
             agent.decay_epsilon()
 
             if ep % TARGET_UPDATE_FREQ == 0:
                 agent.sync_target()
 
-            # Log JSON
-            entry = {
-                "episode": ep,
-                "score":   info["score"],
-                "moves":   moves,
-                "epsilon": round(agent.epsilon, 4),
-                "reward":  round(ep_reward, 4),
-            }
-            log_file.write(json.dumps(entry) + "\n")
+            _log_episode(log_file, ep, info, moves, agent, ep_reward)
 
-            # Checkpoint + affichage
             if ep % CHECKPOINT_FREQ == 0:
-                ckpt = model_dir / f"dqn_ep{ep}.pt"
-                torch.save(agent.q_net.state_dict(), ckpt)
-                if verbose:
-                    elapsed = time.time() - t0
-                    print(
-                        f"Ep {ep:>6}/{episodes}  "
-                        f"score={info['score']:>3}  "
-                        f"ε={agent.epsilon:.3f}  "
-                        f"t={elapsed:.0f}s"
-                    )
+                _save_checkpoint(agent, model_dir, ep, episodes, info["score"], t0, verbose)
 
-    # Checkpoint final
-    torch.save(agent.q_net.state_dict(), model_dir / "dqn_final.pt")
-    if verbose:
-        print(f"Terminé — {episodes} épisodes en {time.time() - t0:.1f}s")
+    _save_checkpoint(agent, model_dir, episodes, episodes, info["score"], t0, verbose, final=True)
     return agent
 
 
@@ -269,24 +330,23 @@ def train(
 
 def _parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="Entraînement DQN — Dungeon POC")
-    p.add_argument("--episodes",  type=int,  default=EPISODES,
+    p.add_argument("--episodes",  type=int, default=EPISODES,
                    help=f"Nombre d'épisodes (défaut : {EPISODES})")
-    p.add_argument("--seed",      type=int,  default=None,
+    p.add_argument("--seed",      type=int, default=None,
                    help="Seed fixe — même terrain à chaque épisode")
-    p.add_argument("--seed-pool", type=str,  default=None,
+    p.add_argument("--seed-pool", type=str, default=None,
                    help="Pool de seeds, ex : 0,1,2,3")
-    p.add_argument("--log",       type=Path, default=Path("logs/train.jsonl"))
-    p.add_argument("--model-dir", type=Path, default=Path("models"))
     return p.parse_args()
 
 
 if __name__ == "__main__":
     args = _parse_args()
     pool = [int(s) for s in args.seed_pool.split(",")] if args.seed_pool else None
+    run  = _run_name(_now(), args.episodes, args.seed, pool)
     train(
         episodes  = args.episodes,
         seed      = args.seed,
         seed_pool = pool,
-        log_path  = args.log,
-        model_dir = args.model_dir,
+        log_path  = Path("logs") / f"{run}.jsonl",
+        model_dir = Path("models") / run,
     )

@@ -27,13 +27,15 @@ Generate `src/model.py` and `src/train.py` — DQN training loop for DungeonEnv.
 - `decay_epsilon()` — `epsilon = max(eps_end, epsilon * eps_decay)`
 - `sync_target()` — copies q_net weights to target_net
 
+**`_now() → str`** — timestamp `yyyymmdd_hhmm`
+**`_run_label(seed, seed_pool) → str`** — `seed42` / `pool10` / `random`
+**`_run_name(timestamp, episodes, seed, seed_pool) → str`** — identifiant unique du run
+
 **`train(episodes, seed, seed_pool, log_path, model_dir, verbose) → DQNAgent`**
 - Creates `DungeonEnv`, `DQNAgent`, `ReplayBuffer`
-- Per episode: reset → loop(select_action → step → push → learn) → decay_epsilon
+- Per episode: `_run_episode` → `_log_episode` → `_save_checkpoint` (every 500 ep)
 - Every `TARGET_UPDATE_FREQ` episodes: sync_target
-- Every `CHECKPOINT_FREQ` episodes: save `models/dqn_ep{N}.pt`
-- Per episode: write JSON line to log_path
-- Final: save `models/dqn_final.pt`
+- Final: `_save_checkpoint(..., final=True)` → `final.pt`
 
 ## Hyperparameters (module-level constants)
 ```
@@ -47,10 +49,16 @@ BUFFER_SIZE=10_000, TARGET_UPDATE_FREQ=100, CHECKPOINT_FREQ=500
 {"episode": 1, "score": 0, "moves": ["LEFT", "UP", ...], "epsilon": 0.995, "reward": 0.0}
 ```
 
+## Output naming convention
+- Log  : `logs/yyyymmdd_hhmm_{label}_ep{N}.jsonl`
+- Models: `models/yyyymmdd_hhmm_{label}_ep{N}/ep500.pt … final.pt`
+- `{label}` = `seed42` | `pool10` | `random`
+
 ## CLI entry point
 ```bash
 python src/train.py --episodes 5000 --seed 42
-python src/train.py --seed-pool 0,1,2,3
+python src/train.py --episodes 10000 --seed-pool 0,1,2,3
+python src/train.py --episodes 5000
 ```
 
 ## Constraints

@@ -35,25 +35,10 @@ def make_state(
     overrides: dict | None = None,
 ) -> GameState:
     """Build a GameState with fully-controlled positions and tile layout."""
-    grid = FakeGrid(overrides)
-    state = GameState(grid, seed=0)
+    state = GameState(FakeGrid(overrides), seed=0)
     state.char_pos = char_pos
     state.exit_pos = exit_pos
-    _moves = PathFinder().find_shortest_path(grid, char_pos, exit_pos)
-    if _moves is not None:
-        x, y = char_pos
-        positions = [char_pos]
-        cost = 0
-        for move in _moves:
-            dx, dy = DIRECTIONS[move]
-            x, y = x + dx, y + dy
-            cost += grid.move_cost(x, y)
-            positions.append((x, y))
-        state._optimal_cost = cost
-        state.optimal_path = positions
-    else:
-        state._optimal_cost = None
-        state.optimal_path = None
+    state._compute_optimal_path()
     state.trail = [char_pos]
     return state
 

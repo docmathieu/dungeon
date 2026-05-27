@@ -162,6 +162,7 @@ class GameUI:
             pygame.quit()
             sys.exit()
 
+        # If mouse click on restart rect
         if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
             if self._restart_rect.collidepoint(event.pos):
                 self._reset()

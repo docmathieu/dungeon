@@ -158,7 +158,8 @@ Composants :
 - `DQNAgent` — epsilon-greedy (1.0→0.05), réseau cible synchronisé tous les 100 épisodes
 - `encode_obs()` — one-hot grille (300) + positions normalisées (4) = 304 floats
 - Logs JSON : `{"episode", "score", "moves", "epsilon", "reward"}` (un par épisode)
-- Checkpoints : `models/dqn_ep<N>.pt` tous les 500 épisodes + `dqn_final.pt`
+- Nommage automatique : `logs/yyyymmdd_hhmm_{label}_ep{N}.jsonl` et `models/yyyymmdd_hhmm_{label}_ep{N}/`
+- `{label}` = `seed42` / `pool10` / `random` — checkpoints `ep<N>.pt` tous les 500 épisodes + `final.pt`
 
 ### Agent : replay-model *(Phase 3)*
 Charge un checkpoint `.pt` et rejoue la partie dans pygame via seed + séquence générée par le modèle.

@@ -23,4 +23,6 @@ prompt.md
 htmlcov/
 
 models/*
+!models/.gitkeep
 logs/*
+!logs/.gitkeep

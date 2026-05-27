@@ -132,8 +132,9 @@ python src/train.py --episodes 3000 --seed 42
 - `DQNetwork` MLP : 304 → 128 → 64 → 4 sorties (Q-values)
 - `DQNAgent` : epsilon-greedy (ε 1.0→0.05), réseau cible, replay buffer 10 000
 - Reward shaping : `REWARD_STEP=-0.01`, `REWARD_BUMP=-0.05`
-- Logs JSON dans `logs/train.jsonl` : `{"episode", "score", "moves", "epsilon", "reward"}`
-- Checkpoints dans `models/dqn_ep<N>.pt` + `models/dqn_final.pt`
+- Logs JSON dans `logs/yyyymmdd_hhmm_{label}_ep{N}.jsonl` : `{"episode", "score", "moves", "epsilon", "reward"}`
+- Checkpoints dans `models/yyyymmdd_hhmm_{label}_ep{N}/ep<N>.pt` + `final.pt`
+- `{label}` = `seed42` / `pool10` / `random` selon le mode de seed
 
 **Résultats run seed=42, 3 000 épisodes (2026-05-21) :**
 | Bloc | Victoires | Score moy | Moves moy |
@@ -149,11 +150,36 @@ python src/train.py --episodes 3000 --seed 42
 puis désapprend. Les poids encodant la bonne politique sont écrasés par les nouvelles mises à jour.
 **Meilleur checkpoint exploitable : `models/dqn_ep1500.pt` ou `dqn_ep2000.pt`.**
 
-**Prochaine action Phase 2 — Diversifier les seeds (`seed_pool`) :**
-- Objectif : vérifier si le modèle reste stable sur terrains variés et ne surappend pas un seul terrain
-- `dqn_ep1500.pt` n'est probablement pas bon sur d'autres seeds → la généralisation est la vraie mesure
-- Commande cible : `python src/train.py --episodes 5000 --seed-pool 0,1,2,...,99`
-- Métriques à surveiller : taux de victoire sur seeds hors-pool (jeu de validation)
+**Expériences seed_pool (2026-05-22) :**
+
+Fix implémenté dans `train.py` (non commité) :
+```python
+# Decay adaptatif — epsilon atteint EPSILON_END à la moitié des épisodes
+eps_decay = (EPSILON_END / EPSILON_START) ** (2.0 / episodes)
+```
+- seed=42 seul, 3 000 ep → decay=0.9980, minimum à ep 1500 ✅ (reproduit le pattern d'hier)
+- pool 10 seeds, 10 000 ep → decay=0.9991, minimum à ep 5000
+
+**Résultats seed_pool (2026-05-22) :**
+| Run | Pool | Ep | Win rate exploitation | Diagnostic |
+|-----|------|----|-----------------------|-----------|
+| pool20 v1 | 20 seeds | 3 000 | 7–8% | eps trop rapide (0.995 fixe) |
+| pool20 v2 | 20 seeds | 3 000 | ~20% stable | decay adaptatif, plus de crash |
+| pool10 10k | 10 seeds | 10 000 | 8–24% puis déclin | gradients conflictuels, LR trop fort |
+
+**Diagnostic multi-seeds :** le réseau MLP génère des **gradients conflictuels** quand les terrains ont des politiques optimales différentes. La politique "moyenne" est pire qu'aléatoire en exploitation. Le decay adaptatif améliore la stabilité mais ne suffit pas.
+
+**Bug corrigé :** `ε=` → `eps=` dans le print (UnicodeEncodeError cp1252 Windows).
+
+**Prochaine action Phase 2 — Réduire le learning rate :**
+- Hypothèse : `LR=1e-3` trop agressif pour la généralisation multi-seeds
+- Tester `LR=3e-4` avec pool 10 seeds, 10 000 épisodes
+- Si stable → scaler à 100 seeds
+
+**À commiter (prochaine session) :**
+- Fix `eps=` (UnicodeEncodeError)
+- Decay adaptatif `eps_decay = (EPSILON_END/EPSILON_START)^(2/episodes)`
+- 2 nouveaux tests (`test_adaptive_decay_*`, `test_seed_pool_runs_without_error`)
 
 #### Phase 3 — Visualisation pygame *(après stabilisation Phase 2)*
 - Charger un checkpoint `.pt` (PyTorch)
@@ -161,12 +187,13 @@ puis désapprend. Les poids encodant la bonne politique sont écrasés par les n
 - Lancement : `python src/main.py --seed 42 --replay logs/episode_xxx.jsonl`
 
 #### Phase 4 — Amélioration itérative
+- Réduire le learning rate (1e-3 → 3e-4) ← prochaine étape concrète
 - Curriculum : herbe seule → roches → eau → full random
-- Réduire le learning rate (1e-3 → 3e-4) si instabilité persiste avec seed_pool
+- Augmenter BUFFER_SIZE si instabilité persiste avec seed_pool
 
 ### Stratégie terrains (détail)
 | Option | Description | Quand |
 |--------|-------------|-------|
-| B — Pool fixe | ~1000 seeds pré-générés, jeu de validation séparé | ← Court terme (prochain) |
+| B — Pool fixe | pool 10–100 seeds, decay adaptatif | ← En cours |
 | C — Curriculum | Difficulté progressive par phases | Moyen terme |
 | A — Full random | Nouveau terrain à chaque épisode | Long terme |
