@@ -41,7 +41,6 @@ dungeon/claude/
 │   ├── grid.py           ← TileType, Grid
 │   ├── game_state.py     ← GameState, logique déplacement, scoring, trail
 │   ├── pathfinder.py     ← PathFinder (Dijkstra pondéré)
-│   ├── simulation.py     ← thread de simulation headless (RL)
 │   ├── dungeon_env.py    ← DungeonEnv : interface Gym reset()/step() (Phase 1 RL)
 │   ├── model.py          ← DQNetwork MLP 304→128→64→4 (Phase 2 RL)
 │   ├── train.py          ← boucle DQN, ReplayBuffer, DQNAgent, logs JSON (Phase 2 RL)

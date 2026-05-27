@@ -33,7 +33,6 @@ Fonctionnalités couvertes :
 - Choc contre un rocher ou bord de grille : `move_count += 1`, position inchangée, trail inchangé
 - Interface : labels déplacements/note/information, légende touches, bouton restart uniquement
 - Contrôle : touches fléchées → `apply_move()` direct (pas de thread, pas de queue dans l'UI)
-- `Simulation` conservée pour usage RL headless uniquement (`queue=None`)
 
 Contraintes imposées à l'agent :
 - `directions.py`, `grid.py`, `game_state.py`, `pathfinder.py`, `simulation.py` : aucun import pygame
@@ -61,7 +60,6 @@ Génère les tests unitaires pytest couvrant :
 - `trail` : initialisé avec char_pos, alimenté à chaque déplacement réussi, inchangé si bloqué
 - `optimal_path` : positions du chemin optimal, None si inaccessible, cohérent avec `_optimal_cost`
 - `is_solvable()` et `create_solvable()` : retry jusqu'à obtenir un terrain jouable
-- `Simulation` : parse flèches, headless, queue repaint, stop event, condition PERDU
 
 **`tests/test_pathfinder.py`** — PathFinder Dijkstra
 - start == end, chemins de base (4 directions, coin à coin)

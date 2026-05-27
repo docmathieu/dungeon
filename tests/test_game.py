@@ -1,18 +1,14 @@
 """
 Comprehensive unit tests for the dungeon game.
 
-Covers: Grid, TileType, GameState, DIRECTION_DELTA, Simulation.
+Covers: Grid, TileType, GameState, DIRECTION_DELTA.
 """
-import queue
-import threading
-from unittest.mock import patch
-
 import pytest
+from unittest.mock import patch
 
 from grid import Grid, TileType
 from directions import DIRECTIONS
 from game_state import GameState
-from simulation import Simulation, REPAINT
 from pathfinder import PathFinder
 from helpers import FakeGrid
 
@@ -520,227 +516,6 @@ class TestWinCondition:
 
 
 # ===========================================================================
-# Simulation._parse
-# ===========================================================================
-
-class TestSimulationParse:
-    def test_all_four_arrows(self):
-        assert Simulation._parse("←↑→↓") == ["LEFT", "UP", "RIGHT", "DOWN"]
-
-    def test_ignores_non_arrow_characters(self):
-        assert Simulation._parse("a←b↓c") == ["LEFT", "DOWN"]
-
-    def test_empty_string(self):
-        assert Simulation._parse("") == []
-
-    def test_no_arrows(self):
-        assert Simulation._parse("hello world 123") == []
-
-    def test_repeated_same_arrow(self):
-        assert Simulation._parse("→→→") == ["RIGHT", "RIGHT", "RIGHT"]
-
-    def test_order_preserved(self):
-        assert Simulation._parse("↓←↑→") == ["DOWN", "LEFT", "UP", "RIGHT"]
-
-    def test_spaces_ignored(self):
-        assert Simulation._parse("← →") == ["LEFT", "RIGHT"]
-
-
-# ===========================================================================
-# Simulation — headless (no queue)
-# ===========================================================================
-
-class TestSimulationHeadless:
-    def test_applies_all_moves(self):
-        state = make_state(char_pos=(3, 5))
-        Simulation(state, "→→", ui_queue=None).run()
-        assert state.char_pos == (5, 5)
-        assert state.move_count == 2
-
-    def test_no_instructions_no_movement(self):
-        state = make_state(char_pos=(3, 5))
-        Simulation(state, "", ui_queue=None).run()
-        assert state.char_pos == (3, 5)
-        assert state.move_count == 0
-
-    def test_stops_on_win(self):
-        state = make_state(char_pos=(4, 5), exit_pos=(5, 5))
-        Simulation(state, "→→→", ui_queue=None).run()
-        assert state.won is True
-        assert state.move_count == 1  # won on first move, rest ignored
-
-    def test_rock_blocks_move(self):
-        state = make_state(char_pos=(3, 5), overrides={(4, 5): TileType.ROCK})
-        Simulation(state, "→", ui_queue=None).run()
-        assert state.char_pos == (3, 5)
-
-    def test_rock_bump_costs_one_in_simulation(self):
-        """Simulation: bumping a rock increments move_count by 1, no position change."""
-        state = make_state(char_pos=(3, 5), overrides={(4, 5): TileType.ROCK})
-        Simulation(state, "→", ui_queue=None).run()
-        assert state.move_count == 1
-
-    def test_boundary_bump_costs_one_in_simulation(self):
-        """Simulation: hitting the grid boundary increments move_count by 1."""
-        state = make_state(char_pos=(0, 5))
-        Simulation(state, "←", ui_queue=None).run()
-        assert state.char_pos == (0, 5)
-        assert state.move_count == 1
-
-    def test_non_arrow_characters_produce_no_moves(self):
-        state = make_state(char_pos=(3, 5))
-        Simulation(state, "abcde", ui_queue=None).run()
-        assert state.char_pos == (3, 5)
-        assert state.move_count == 0
-
-    def test_water_tile_costs_two(self):
-        state = make_state(char_pos=(3, 5), overrides={(4, 5): TileType.WATER})
-        Simulation(state, "→", ui_queue=None).run()
-        assert state.move_count == 2
-
-
-# ===========================================================================
-# Simulation — lose condition
-# ===========================================================================
-
-class TestSimulationLoseCondition:
-    def test_info_is_perdu_when_sequence_ends_without_win(self):
-        state = make_state(char_pos=(3, 5), exit_pos=(8, 8))
-        Simulation(state, "→", ui_queue=None).run()
-        assert state.info == "PERDU"
-
-    def test_score_is_zero_when_sequence_ends_without_win(self):
-        state = make_state(char_pos=(3, 5), exit_pos=(8, 8))
-        Simulation(state, "→", ui_queue=None).run()
-        assert state.score == 0
-
-    def test_no_perdu_when_sequence_is_empty(self):
-        state = make_state(char_pos=(3, 5), exit_pos=(8, 8))
-        Simulation(state, "", ui_queue=None).run()
-        assert state.info == "PERDU"
-        assert state.score == 0
-
-    def test_no_perdu_when_won(self):
-        state = make_state(char_pos=(4, 5), exit_pos=(5, 5))
-        Simulation(state, "→→→", ui_queue=None).run()
-        assert state.info == "GAGNE"
-        assert state.score == 100
-
-    def test_no_perdu_when_stopped(self):
-        state = make_state(char_pos=(3, 5), exit_pos=(8, 8))
-        sim = Simulation(state, "→→→", ui_queue=None)
-        sim.stop()
-        sim.run()
-        assert state.info == ""
-        assert state.score == 0
-
-    def test_perdu_repaint_sent_to_queue(self):
-        state = make_state(char_pos=(3, 5), exit_pos=(8, 8))
-        q = queue.Queue()
-        with patch("simulation.time.sleep"):
-            Simulation(state, "→", ui_queue=q).run()
-        # last item in queue is the PERDU repaint
-        items = list(q.queue)
-        assert items[-1] == REPAINT
-        assert state.info == "PERDU"
-
-    def test_no_extra_repaint_when_queue_is_none(self):
-        state = make_state(char_pos=(3, 5), exit_pos=(8, 8))
-        # should not raise even without a queue
-        Simulation(state, "→", ui_queue=None).run()
-        assert state.info == "PERDU"
-
-
-# ===========================================================================
-# Simulation — stop event
-# ===========================================================================
-
-class TestSimulationStop:
-    def test_stop_method_sets_event(self):
-        state = make_state()
-        sim = Simulation(state, "", ui_queue=None)
-        assert not sim._stop_event.is_set()
-        sim.stop()
-        assert sim._stop_event.is_set()
-
-    def test_pre_stopped_simulation_applies_no_moves(self):
-        state = make_state(char_pos=(0, 5))
-        sim = Simulation(state, "→" * 9, ui_queue=None)
-        sim._stop_event.set()
-        sim.run()
-        assert state.char_pos == (0, 5)
-
-    def test_stop_before_start_applies_no_moves(self):
-        """Stopping before run() starts means the loop body is never entered."""
-        state = make_state(char_pos=(0, 5))
-        sim = Simulation(state, "→" * 9, ui_queue=None)
-        sim.stop()
-        sim.run()
-        assert state.char_pos == (0, 5)
-        assert state.move_count == 0
-
-
-# ===========================================================================
-# Simulation — queue (UI repaint)
-# ===========================================================================
-
-class TestSimulationQueue:
-    def test_repaint_constant_value(self):
-        assert REPAINT == "repaint"
-
-    def test_queue_receives_one_repaint_per_move_plus_one_for_lose(self):
-        state = make_state(char_pos=(3, 5))
-        q = queue.Queue()
-        with patch("simulation.time.sleep"):
-            Simulation(state, "→→", ui_queue=q).run()
-        items = list(q.queue)
-        # 2 moves + 1 extra repaint for PERDU at end of sequence
-        assert items == [REPAINT, REPAINT, REPAINT]
-
-    def test_no_repaint_when_queue_is_none(self):
-        state = make_state(char_pos=(3, 5))
-        # Should not raise even though there is no queue to put into.
-        Simulation(state, "→", ui_queue=None).run()
-
-    def test_no_repaint_after_win(self):
-        """Win on first move; the two remaining moves should not emit repaint."""
-        state = make_state(char_pos=(4, 5), exit_pos=(5, 5))
-        q = queue.Queue()
-        with patch("simulation.time.sleep"):
-            Simulation(state, "→→→", ui_queue=q).run()
-        assert q.qsize() == 1
-
-    def test_sleep_called_per_move_when_queue_provided(self):
-        state = make_state(char_pos=(3, 5))
-        q = queue.Queue()
-        with patch("simulation.time.sleep") as mock_sleep:
-            Simulation(state, "→→", ui_queue=q).run()
-        assert mock_sleep.call_count == 2
-        mock_sleep.assert_called_with(0.3)
-
-    def test_sleep_not_called_without_queue(self):
-        state = make_state(char_pos=(3, 5))
-        with patch("simulation.time.sleep") as mock_sleep:
-            Simulation(state, "→→", ui_queue=None).run()
-        mock_sleep.assert_not_called()
-
-    def test_is_daemon_thread(self):
-        state = make_state()
-        sim = Simulation(state, "", ui_queue=None)
-        assert sim.daemon is True
-
-    def test_run_as_thread_completes(self):
-        state = make_state(char_pos=(3, 5))
-        q = queue.Queue()
-        with patch("simulation.time.sleep"):
-            sim = Simulation(state, "→", ui_queue=q)
-            sim.start()
-            sim.join(timeout=2)
-        assert not sim.is_alive()
-        assert state.char_pos == (4, 5)
-
-
-# ===========================================================================
 # GameState — win scoring (0–100)
 # ===========================================================================
 
@@ -802,7 +577,7 @@ class TestWinScore:
 
     def test_score_zero_when_lost(self):
         state = make_state(char_pos=(3, 5), exit_pos=(8, 8))
-        Simulation(state, "→", ui_queue=None).run()
+        state.apply_move("RIGHT")
         assert state.score == 0
 
     def test_score_not_set_before_win(self):
