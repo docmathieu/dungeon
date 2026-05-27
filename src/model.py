@@ -1,7 +1,7 @@
 """model.py — DQNetwork : réseau MLP pour l'algorithme DQN.
 
 Architecture :
-    INPUT(304) → Linear(128) → ReLU → Linear(64) → ReLU → Linear(4)
+    INPUT(304) → Linear(256) → ReLU → Linear(128) → ReLU → Linear(64) → ReLU → Linear(4)
 
 Entrée (304 floats) :
     - grille 10×10 en one-hot : 100 cases × 3 types = 300 floats
@@ -17,8 +17,9 @@ import torch.nn as nn
 
 
 INPUT_DIM  = 304   # 100×3 one-hot + 2 char_pos + 2 exit_pos
-HIDDEN1    = 128
-HIDDEN2    = 64
+HIDDEN1    = 256
+HIDDEN2    = 128
+HIDDEN3    = 64
 OUTPUT_DIM = 4     # LEFT, RIGHT, UP, DOWN
 
 
@@ -30,6 +31,7 @@ class DQNetwork(nn.Module):
         input_dim:  int = INPUT_DIM,
         hidden1:    int = HIDDEN1,
         hidden2:    int = HIDDEN2,
+        hidden3:    int = HIDDEN3,
         output_dim: int = OUTPUT_DIM,
     ):
         super().__init__()
@@ -38,7 +40,9 @@ class DQNetwork(nn.Module):
             nn.ReLU(),
             nn.Linear(hidden1, hidden2),
             nn.ReLU(),
-            nn.Linear(hidden2, output_dim),
+            nn.Linear(hidden2, hidden3),
+            nn.ReLU(),
+            nn.Linear(hidden3, output_dim),
         )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:

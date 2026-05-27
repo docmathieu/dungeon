@@ -151,7 +151,7 @@ python src/train.py --episodes 5000 --seed-pool 0,1,2,...
 ```
 
 Composants :
-- `DQNetwork` — MLP PyTorch : 304 → Dense(128,ReLU) → Dense(64,ReLU) → 4 sorties
+- `DQNetwork` — MLP PyTorch : 304 → Dense(256,ReLU) → Dense(128,ReLU) → Dense(64,ReLU) → 4 sorties
 - `ReplayBuffer` — buffer circulaire FIFO, capacité 10 000
 - `DQNAgent` — epsilon-greedy (1.0→0.05), réseau cible synchronisé tous les 100 épisodes
 - `encode_obs()` — one-hot grille (300) + positions normalisées (4) = 304 floats
@@ -173,13 +173,14 @@ python src/curriculum.py --pool 0,1,2,3,4,5,6,7,8,9 \
                          --stages 1,3,6,10 \
                          --max-episodes-per-stage 2000 \
                          --win-rate-threshold 0.8 \
-                         --lr 3e-4
+                         --lr 3e-4,1e-4
 ```
 
 Composants :
+- `_pad_lr(lrs, n)` — normalise la liste de lr à n éléments (répète la dernière valeur ou tronque)
 - `_win_rate(scores, window=100)` — taux de victoire sur les N derniers épisodes (score > 0 = victoire)
 - `_train_stage(...)` — entraîne jusqu'à maîtrise (win rate ≥ seuil sur 100 ep) ou max_episodes
-- `run_curriculum(pool, stages, ...)` — orchestre les étapes, passe `final.pt` comme pretrained
+- `run_curriculum(pool, stages, lr, ...)` — orchestre les étapes, route `lr[stage_idx]` à chaque stage
 - Chaque étape produit : `logs/yyyymmdd_hhmm_{label}_ep{N}[_from_{timestamp}].jsonl` + `models/yyyymmdd_hhmm_{label}_ep{N}[_from_{timestamp}]/final.pt`
 - Transfer learning automatique : chaque étape repart des poids de l'étape précédente (`_from_` dans le nom)
 
@@ -188,7 +189,7 @@ Paramètres CLI :
 - `--stages` : seeds par étape (défaut `1,3,6,10`)
 - `--max-episodes-per-stage` : plafond épisodes par étape / timeout (défaut `2000`)
 - `--win-rate-threshold` : taux de victoire cible pour progresser (défaut `0.8`)
-- `--lr` : learning rate (défaut `1e-3`)
+- `--lr` : learning rate(s) par étape, ex. `3e-4,1e-4` — liste de mêmes longueur que `stages` ou plus courte (dernière valeur répétée) (défaut `1e-3`)
 
 ### Agent : replay-model *(Phase 3)*
 Charge un checkpoint `.pt` et rejoue la partie dans pygame via seed + séquence générée par le modèle.

@@ -103,7 +103,7 @@ dungeon/claude/
 ## Roadmap Apprentissage par Renforcement
 
 ### Décisions clés (2026-05-20)
-- **Modèle** : petit réseau MLP (pas un LLM) — ~304 entrées → 128 → 64 → 4 sorties (Q-values)
+- **Modèle** : réseau MLP (pas un LLM) — 304 entrées → 256 → 128 → 64 → 4 sorties (Q-values)
 - **Algorithme** : DQN pour commencer, PPO ensuite
 - **Librairie** : PyTorch + Stable-Baselines3
 - **Reward** : `score / 100` (0.0 à 1.0, 1.0 = chemin optimal) + reward shaping intermédiaire
@@ -130,7 +130,7 @@ Fichiers : `src/model.py`, `src/train.py`
 ```bash
 python src/train.py --episodes 3000 --seed 42
 ```
-- `DQNetwork` MLP : 304 → 128 → 64 → 4 sorties (Q-values)
+- `DQNetwork` MLP : 304 → 256 → 128 → 64 → 4 sorties (Q-values)
 - `DQNAgent` : epsilon-greedy (ε 1.0→0.05), réseau cible, replay buffer 10 000
 - Reward shaping : `REWARD_STEP=-0.01`, `REWARD_BUMP=-0.05`
 - Logs JSON dans `logs/yyyymmdd_hhmm_{label}_ep{N}[_from_{timestamp}].jsonl` : `{"episode", "score", "moves", "epsilon", "reward"}`
@@ -191,12 +191,13 @@ python src/curriculum.py --pool 0,1,2,3,4,5,6,7,8,9 \
                          --stages 1,3,6,10 \
                          --max-episodes-per-stage 2000 \
                          --win-rate-threshold 0.8 \
-                         --lr 3e-4
+                         --lr 3e-4,1e-4
 ```
 - Élargit le pool de seeds par étapes (1 → 3 → 6 → 10)
 - Passe à l'étape suivante si win rate ≥ seuil sur les 100 derniers épisodes
 - Fallback : `--max-episodes-per-stage` si le seuil n'est jamais atteint
 - Transfer learning automatique entre étapes via `_from_` dans le nom des fichiers
+- `--lr` accepte une liste : `3e-4,1e-4` → lr=3e-4 stage 1, lr=1e-4 stages suivants (dernière valeur répétée)
 
 **Résultats curriculum (2026-05-27) :**
 | Stage | Pool | Episodes | Win rate max | Win rate final | Notes |
@@ -208,12 +209,22 @@ python src/curriculum.py --pool 0,1,2,3,4,5,6,7,8,9 \
 
 **Diagnostic curriculum :** le curriculum améliore le démarrage (Stage 3 part à 39% vs 0% sans),
 mais le catastrophic forgetting frappe toujours à mi-parcours pour les pools > 1 seed.
-Le réseau MLP 304→128→64→4 semble insuffisant pour mémoriser plusieurs politiques à la fois.
+Le réseau MLP 304→128→64→4 s'est révélé insuffisant pour mémoriser plusieurs politiques à la fois.
 
-**Pistes suivantes :**
-- Augmenter la capacité du réseau (plus de neurones / couches)
-- Experience replay prioritaire (PER) pour équilibrer les seeds
-- Réduire le learning rate pour les stages multi-seeds (ex. 1e-4)
+**Architecture réseau augmentée ✅ + run effectué (2026-05-27)**
+`model.py` mis à jour : 304→256→128→64→4 (3 couches cachées, ~112k paramètres vs ~51k avant).
+Run curriculum `--lr 3e-4,1e-4` avec la nouvelle architecture :
+
+| Stage | Pool | Ep | Win rate max | Win rate final | vs run précédent |
+|-------|------|----|-------------|----------------|-----------------|
+| 1 | seed0 | **413** | **80%** | 80% | ✅ plus rapide (était 598) |
+| 2 | pool3 | 2000 | **43%** | 9% | +8 pts max (était 35%) |
+| 3 | pool6 | 2000 | 24% | **22%** | +10 pts final (était 12%) |
+| 4 | pool10 | 2000 | **32%** | 9% | +15 pts max (était 17%) |
+
+Progrès notables : Stage 1 converge 31% plus vite. Stage 4 atteint 32% de win rate (vs 17%).
+Stage 3 est plus stable (pas de cliff brutal — 22% en fin vs 12%).
+Catastrophic forgetting reste présent mais atténué par lr=1e-4 et la capacité réseau accrue.
 
 #### Phase 3 — Visualisation pygame *(après stabilisation Phase 2)*
 - Charger un checkpoint `.pt` (PyTorch)
@@ -222,7 +233,7 @@ Le réseau MLP 304→128→64→4 semble insuffisant pour mémoriser plusieurs p
 
 #### Phase 4 — Amélioration itérative
 - ~~Curriculum progressif seeds (1→3→6→10)~~ ✅ effectué
-- Augmenter capacité réseau si forgetting persiste
+- ~~Augmenter capacité réseau~~ ✅ 304→256→128→64→4
 - Prioritized Experience Replay (PER)
 
 ### Stratégie terrains (détail)

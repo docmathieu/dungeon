@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 import torch
 
-from model import DQNetwork, INPUT_DIM, OUTPUT_DIM
+from model import DQNetwork, INPUT_DIM, OUTPUT_DIM, HIDDEN1, HIDDEN2, HIDDEN3
 from dungeon_env import DungeonEnv
 from train import (
     encode_obs,
@@ -173,9 +173,15 @@ class TestDQNetwork:
         assert out.shape == (8, OUTPUT_DIM)
 
     def test_custom_dimensions(self):
-        net = DQNetwork(input_dim=10, hidden1=8, hidden2=4, output_dim=2)
+        net = DQNetwork(input_dim=10, hidden1=8, hidden2=4, hidden3=2, output_dim=2)
         x   = torch.zeros(10)
         assert net(x).shape == (2,)
+
+    def test_default_hidden_sizes(self):
+        """Les constantes reflètent l'architecture 256→128→64."""
+        assert HIDDEN1 == 256
+        assert HIDDEN2 == 128
+        assert HIDDEN3 == 64
 
     def test_output_is_float32(self):
         net = DQNetwork()

@@ -7,6 +7,7 @@ import pytest
 
 from curriculum import (
     WIN_RATE_WINDOW,
+    _pad_lr,
     _train_stage,
     _win_rate,
     run_curriculum,
@@ -48,6 +49,24 @@ class TestWinRate:
     def test_custom_window(self):
         scores = [0] * 10 + [100] * 5
         assert _win_rate(scores, window=5) == pytest.approx(1.0)
+
+
+# ===========================================================================
+# _pad_lr
+# ===========================================================================
+
+class TestPadLr:
+    def test_single_element_padded_to_n(self):
+        assert _pad_lr([1e-3], 3) == pytest.approx([1e-3, 1e-3, 1e-3])
+
+    def test_exact_length_unchanged(self):
+        assert _pad_lr([3e-4, 1e-4, 5e-5], 3) == pytest.approx([3e-4, 1e-4, 5e-5])
+
+    def test_shorter_pads_with_last_value(self):
+        assert _pad_lr([3e-4, 1e-4], 4) == pytest.approx([3e-4, 1e-4, 1e-4, 1e-4])
+
+    def test_longer_than_n_truncated(self):
+        assert _pad_lr([3e-4, 1e-4, 5e-5, 1e-5], 2) == pytest.approx([3e-4, 1e-4])
 
 
 # ===========================================================================
@@ -159,7 +178,7 @@ class TestRunCurriculum:
             stages                 = [1, 2],
             max_episodes_per_stage = 3,
             win_rate_threshold     = 0.8,
-            lr                     = 1e-3,
+            lr                     = [1e-3],
             log_dir                = tmp_path / "logs",
             model_dir              = tmp_path / "models",
             verbose                = False,
@@ -172,7 +191,7 @@ class TestRunCurriculum:
             stages                 = [1, 2],
             max_episodes_per_stage = 3,
             win_rate_threshold     = 0.8,
-            lr                     = 1e-3,
+            lr                     = [1e-3],
             log_dir                = tmp_path / "logs",
             model_dir              = tmp_path / "models",
             verbose                = False,
@@ -186,7 +205,7 @@ class TestRunCurriculum:
             stages                 = [1, 2],
             max_episodes_per_stage = 3,
             win_rate_threshold     = 0.8,
-            lr                     = 1e-3,
+            lr                     = [1e-3],
             log_dir                = tmp_path / "logs",
             model_dir              = tmp_path / "models",
             verbose                = False,
@@ -200,7 +219,7 @@ class TestRunCurriculum:
             stages                 = [1, 2],
             max_episodes_per_stage = 3,
             win_rate_threshold     = 0.8,
-            lr                     = 1e-3,
+            lr                     = [1e-3],
             log_dir                = tmp_path / "logs",
             model_dir              = tmp_path / "models",
             verbose                = False,
@@ -216,7 +235,7 @@ class TestRunCurriculum:
             stages                 = [1, 2],
             max_episodes_per_stage = 3,
             win_rate_threshold     = 0.8,
-            lr                     = 1e-3,
+            lr                     = [1e-3],
             log_dir                = tmp_path / "logs",
             model_dir              = tmp_path / "models",
             verbose                = False,
@@ -231,7 +250,7 @@ class TestRunCurriculum:
             stages                 = [1, 2],
             max_episodes_per_stage = 3,
             win_rate_threshold     = 0.8,
-            lr                     = 1e-3,
+            lr                     = [1e-3],
             log_dir                = tmp_path / "logs",
             model_dir              = tmp_path / "models",
             verbose                = False,
@@ -246,10 +265,52 @@ class TestRunCurriculum:
             stages                 = [1, 2],
             max_episodes_per_stage = 3,
             win_rate_threshold     = 0.8,
-            lr                     = 1e-3,
+            lr                     = [1e-3],
             log_dir                = tmp_path / "logs",
             model_dir              = tmp_path / "models",
             verbose                = False,
         )
         logs = sorted((tmp_path / "logs").glob("*.jsonl"), key=lambda p: p.stat().st_mtime)
         assert "pool2" in logs[1].name
+
+    def test_per_stage_lr_routes_correctly(self, tmp_path):
+        """Chaque étape reçoit le lr correspondant à sa position dans la liste."""
+        lrs_seen = []
+
+        def spy(*args, **kwargs):
+            lrs_seen.append(kwargs["lr"])
+            return _train_stage(*args, **kwargs)
+
+        with patch("curriculum._train_stage", side_effect=spy):
+            run_curriculum(
+                pool                   = [42, 0],
+                stages                 = [1, 2],
+                max_episodes_per_stage = 3,
+                win_rate_threshold     = 0.8,
+                lr                     = [3e-4, 1e-4],
+                log_dir                = tmp_path / "logs",
+                model_dir              = tmp_path / "models",
+                verbose                = False,
+            )
+        assert lrs_seen == pytest.approx([3e-4, 1e-4])
+
+    def test_single_lr_applied_to_all_stages(self, tmp_path):
+        """Un seul lr fourni doit être utilisé pour toutes les étapes."""
+        lrs_seen = []
+
+        def spy(*args, **kwargs):
+            lrs_seen.append(kwargs["lr"])
+            return _train_stage(*args, **kwargs)
+
+        with patch("curriculum._train_stage", side_effect=spy):
+            run_curriculum(
+                pool                   = [42, 0],
+                stages                 = [1, 2],
+                max_episodes_per_stage = 3,
+                win_rate_threshold     = 0.8,
+                lr                     = [5e-4],
+                log_dir                = tmp_path / "logs",
+                model_dir              = tmp_path / "models",
+                verbose                = False,
+            )
+        assert lrs_seen == pytest.approx([5e-4, 5e-4])

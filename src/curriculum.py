@@ -8,7 +8,7 @@ Utilisation :
                              --stages 1,3,6,10 \\
                              --max-episodes-per-stage 2000 \\
                              --win-rate-threshold 0.8 \\
-                             --lr 3e-4
+                             --lr 3e-4,1e-4
 
 Produits (un par étape) :
     logs/yyyymmdd_hhmm_{label}_ep{N}[_from_{timestamp}].jsonl
@@ -46,6 +46,20 @@ from train import (
 
 
 WIN_RATE_WINDOW = 100   # nombre d'épisodes pour calculer le win rate
+
+
+def _pad_lr(lrs: list[float], n: int) -> list[float]:
+    """Normalise lrs à exactement n éléments.
+
+    Si lrs est plus court que n, répète la dernière valeur.
+    Si lrs est plus long que n, tronque.
+
+    Exemples :
+        _pad_lr([3e-4], 4)           -> [3e-4, 3e-4, 3e-4, 3e-4]
+        _pad_lr([3e-4, 1e-4], 4)     -> [3e-4, 1e-4, 1e-4, 1e-4]
+        _pad_lr([3e-4, 1e-4, 5e-5], 2) -> [3e-4, 1e-4]
+    """
+    return (lrs + [lrs[-1]] * n)[:n]
 
 
 def _win_rate(scores: list[int], window: int = WIN_RATE_WINDOW) -> float:
@@ -123,14 +137,22 @@ def _train_stage(
 def run_curriculum(
     pool:                   list[int],
     stages:                 list[int],
-    max_episodes_per_stage: int   = 2000,
-    win_rate_threshold:     float = 0.8,
-    lr:                     float = LEARNING_RATE,
-    log_dir:                Path  = Path("logs"),
-    model_dir:              Path  = Path("models"),
-    verbose:                bool  = True,
+    max_episodes_per_stage: int              = 2000,
+    win_rate_threshold:     float            = 0.8,
+    lr:                     list[float] | None = None,
+    log_dir:                Path             = Path("logs"),
+    model_dir:              Path             = Path("models"),
+    verbose:                bool             = True,
 ) -> Path:
-    """Lance le curriculum complet. Retourne le chemin vers le dernier final.pt."""
+    """Lance le curriculum complet. Retourne le chemin vers le dernier final.pt.
+
+    lr : learning rate(s) par étape. Si la liste est plus courte que stages,
+         la dernière valeur est répétée. Défaut : [LEARNING_RATE] pour toutes.
+    """
+    if lr is None:
+        lr = [LEARNING_RATE]
+    lrs = _pad_lr(lr, len(stages))
+
     pretrained: Path | None = None
 
     for stage_idx, n_seeds in enumerate(stages):
@@ -146,13 +168,14 @@ def run_curriculum(
         if verbose:
             label  = f"seed{stage_pool[0]}" if n_seeds == 1 else f"pool{n_seeds}"
             suffix = f" <- {pre_label}" if pre_label else ""
-            print(f"\n=== Etape {stage_idx + 1}/{len(stages)} -- {label}{suffix} ===")
+            print(f"\n=== Etape {stage_idx + 1}/{len(stages)} -- {label}{suffix}"
+                  f"  lr={lrs[stage_idx]:.0e} ===")
 
         pretrained = _train_stage(
             stage_pool         = stage_pool,
             max_episodes       = max_episodes_per_stage,
             win_rate_threshold = win_rate_threshold,
-            lr                 = lr,
+            lr                 = lrs[stage_idx],
             pretrained         = pretrained,
             log_path           = log_dir  / f"{run}.jsonl",
             model_dir          = model_dir / run,
@@ -176,20 +199,21 @@ def _parse_args() -> argparse.Namespace:
                    help="Episodes maximum par étape (défaut : 2000)")
     p.add_argument("--win-rate-threshold",     type=float, default=0.8,
                    help="Taux de victoire cible pour progresser (défaut : 0.8)")
-    p.add_argument("--lr",                     type=float, default=LEARNING_RATE,
-                   help=f"Learning rate (défaut : {LEARNING_RATE})")
+    p.add_argument("--lr",                     type=str,   default=str(LEARNING_RATE),
+                   help=f"Learning rate(s) par etape, ex : 3e-4,1e-4 (defaut : {LEARNING_RATE})")
     return p.parse_args()
 
 
 if __name__ == "__main__":
     args   = _parse_args()
-    pool   = [int(s) for s in args.pool.split(",")]
-    stages = [int(s) for s in args.stages.split(",")]
+    pool   = [int(s)   for s in args.pool.split(",")]
+    stages = [int(s)   for s in args.stages.split(",")]
+    lrs    = [float(s) for s in args.lr.split(",")]
     final  = run_curriculum(
         pool                   = pool,
         stages                 = stages,
         max_episodes_per_stage = args.max_episodes_per_stage,
         win_rate_threshold     = args.win_rate_threshold,
-        lr                     = args.lr,
+        lr                     = lrs,
     )
     print(f"\nCurriculum termine. Modele final : {final}")

@@ -3,8 +3,8 @@ Generate `src/model.py` and `src/train.py` — DQN training loop for DungeonEnv.
 ## Files to produce
 
 ### `src/model.py`
-- `INPUT_DIM = 304`, `HIDDEN1 = 128`, `HIDDEN2 = 64`, `OUTPUT_DIM = 4`
-- `DQNetwork(nn.Module)`: `nn.Sequential(Linear→ReLU→Linear→ReLU→Linear)`
+- `INPUT_DIM = 304`, `HIDDEN1 = 256`, `HIDDEN2 = 128`, `HIDDEN3 = 64`, `OUTPUT_DIM = 4`
+- `DQNetwork(nn.Module)`: `nn.Sequential(Linear→ReLU→Linear→ReLU→Linear→ReLU→Linear)`
 - `forward(x)` accepts shape `(input_dim,)` or `(batch, input_dim)`
 
 ### `src/train.py`
@@ -82,17 +82,26 @@ Progressive pool expansion: train on 1 seed until mastered, then widen the pool.
 
 ## CLI entry point
 ```bash
+# lr unique pour toutes les étapes
 python src/curriculum.py --pool 0,1,2,3,4,5,6,7,8,9 \
                          --stages 1,3,6,10 \
                          --max-episodes-per-stage 2000 \
                          --win-rate-threshold 0.8 \
                          --lr 3e-4
+
+# lr différent par étape (3e-4 stage 1, 1e-4 stages suivants)
+python src/curriculum.py --pool 0,1,2,3,4,5,6,7,8,9 \
+                         --stages 1,3,6,10 \
+                         --max-episodes-per-stage 2000 \
+                         --win-rate-threshold 0.8 \
+                         --lr 3e-4,1e-4
 ```
 
 ## Key functions
+- `_pad_lr(lrs, n) → list[float]` — pads/truncates lr list to exactly n elements (repeats last value)
 - `_win_rate(scores, window=100) → float` — fraction of wins in the last `window` episodes (score > 0 = win)
 - `_train_stage(...) → Path` — trains until win rate ≥ threshold or max_episodes; returns `model_dir/final.pt`
-- `run_curriculum(...) → Path` — iterates stages, passes `final.pt` as pretrained for the next stage
+- `run_curriculum(pool, stages, lr, ...) → Path` — iterates stages, routes `lr[stage_idx]` to each stage
 
 ## Stopping criterion per stage
 - **Early stop**: if `ep >= WIN_RATE_WINDOW (100)` and `_win_rate(scores) >= win_rate_threshold` → move to next stage

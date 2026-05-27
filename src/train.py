@@ -9,6 +9,13 @@ Utilisation :
                         --lr 3e-4 \
                         --pretrained models/20260527_1222_seed42_ep2000/final.pt
 
+Curriculum progressif (voir curriculum.py) :
+    .venv/Scripts/python.exe src/curriculum.py --pool 0,1,2,3,4,5,6,7,8,9 \\
+                                               --stages 1,3,6,10 \\
+                                               --max-episodes-per-stage 2000 \\
+                                               --win-rate-threshold 0.8 \\
+                                               --lr 3e-4,1e-4
+
 Produits :
     logs/yyyymmdd_hhmm_{label}_ep{N}[_from_{timestamp}].jsonl   une ligne JSON par épisode
     models/yyyymmdd_hhmm_{label}_ep{N}[_from_{timestamp}]/      dossier du run
