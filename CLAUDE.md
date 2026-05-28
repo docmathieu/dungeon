@@ -250,13 +250,57 @@ seeds peuvent exiger des actions opposées dans des états similaires).
 La racine du problème n'est pas le déséquilibre du buffer mais l'architecture MLP partagée.
 
 **Pistes restantes :**
-- Augmenter `--max-episodes-per-stage` pour laisser le buffer stratifié converger (pool10 était en progression en fin de run)
-- Elastic Weight Consolidation (EWC) pour protéger les poids déjà appris
+- ~~Augmenter `--max-episodes-per-stage`~~ ✅ testé (5000 ep) — aide pool6 (55%) mais pool10 régresse
+- ~~Elastic Weight Consolidation (EWC)~~ ❌ déconseillé — la recherche montre qu'EWC échoue sur les grid worlds (Stanford CS224R)
+
+**Sessions du 2026-05-28 — résumé complet**
+
+**Modifications architecturales implémentées :**
+- **Task-conditioning** (entrée) : `encode_obs(obs, seed_idx=0)` → one-hot 10 bits ajouté aux indices 304–313. `INPUT_DIM` : 304 → 314. Constante `N_SEEDS_DIM = 10`.
+- **FiLM conditioning** : `FiLMLayer` + `FiLMDQNetwork` dans `model.py`. Chaque couche cachée modulée par `gamma(seed)*x + beta(seed)`. `DQNAgent` utilise `FiLMDQNetwork` par défaut.
+- **310 tests, 0 échec.**
+
+**Tableau comparatif complet (stages 1→3→6→10, 5000 ep/stage sauf mention) :**
+
+| Run | Architecture | lr | pool3 | pool6 | pool10 |
+|-----|--------------|----|-------|-------|--------|
+| A | MLP baseline | 3e-4,1e-4 | 30% | 55% | 5% |
+| B | Task-cond input | 3e-4,1e-4 | 0% | **68%** | 7% |
+| C | Task-cond input | 3e-4,3e-4,1e-4 | 0% | 19% | 1% |
+| D | Task-cond input (stages 1,6,10) | 3e-4,1e-4 | — | 17% | 4% |
+| **E** | **FiLM** | **3e-4,1e-4** | **1%** | **51%** | **16%** |
+
+**Enseignements clés :**
+- Le task-conditioning en entrée seul ne suffit pas : les couches cachées partagées génèrent encore des gradients conflictuels.
+- FiLM atteint **16% sur pool10** (meilleur résultat tous runs confondus), mais est 2× plus lent.
+- Pool3 échoue systématiquement (0–1%) avec task-conditioning ou FiLM — mais ces poids "ratés" servent de fondation utile pour pool6 (sauter pool3 = pool6 tombe à 17%).
+- Le catastrophic forgetting frappe systématiquement entre ep 2500–4000 dans tous les runs.
+- Checkpoint FiLM pool3 disponible : `models/20260528_1620_pool3_ep5000_from_20260528_1618/final.pt`
 
 #### Phase 4 — Amélioration itérative
 - ~~Curriculum progressif seeds (1→3→6→10)~~ ✅ effectué
 - ~~Augmenter capacité réseau~~ ✅ 304→256→128→64→4
 - ~~Replay stratifié par seed~~ ✅ `StratifiedReplayBuffer` implémenté et testé
+- ~~Task-conditioning (entrée)~~ ✅ `encode_obs` 304→314, seed one-hot bits 304–313
+- ~~FiLM conditioning~~ ✅ `FiLMLayer`, `FiLMDQNetwork`, `DQNAgent` mis à jour
+
+**⏭️ Prochaine étape (session suivante) :**
+
+**Objectif : 100% win rate sur 100 essais.**
+
+Étape 1 — Ajouter `--pretrained` à la CLI de `curriculum.py` (petite modification) pour pouvoir repartir d'un checkpoint existant sans relancer depuis seed0.
+
+Étape 2 — Relancer FiLM depuis le checkpoint pool3 déjà entraîné, avec 10 000 ep sur pool6 puis pool10 :
+```bash
+.venv/Scripts/python.exe src/curriculum.py \
+    --pool 0,1,2,3,4,5,6,7,8,9 \
+    --stages 6,10 \
+    --max-episodes-per-stage 10000 \
+    --win-rate-threshold 0.8 \
+    --lr 1e-4 \
+    --pretrained models/20260528_1620_pool3_ep5000_from_20260528_1618/final.pt
+```
+Durée estimée : ~4h (FiLM est 2× plus lent). Pool6 atteignait 51% en 5000 ep — 10 000 ep devrait lui permettre de franchir le seuil 80%.
 
 ### Stratégie terrains (détail)
 | Option | Description | Quand |

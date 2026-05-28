@@ -146,10 +146,10 @@ class TestTrainStage:
     def test_pretrained_weights_loaded(self, tmp_path):
         """Un checkpoint pretrained doit être chargé avant l'entraînement."""
         import torch
-        from model import DQNetwork
+        from model import FiLMDQNetwork
         pre_dir = tmp_path / "pre"
         pre_dir.mkdir()
-        net = DQNetwork()
+        net = FiLMDQNetwork()
         for p in net.parameters():
             p.data.fill_(0.5)
         torch.save(net.state_dict(), pre_dir / "final.pt")

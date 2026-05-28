@@ -40,7 +40,11 @@ import torch.optim as optim
 sys.path.insert(0, os.path.dirname(__file__))
 
 from dungeon_env import DungeonEnv, ACTIONS
-from model import DQNetwork, INPUT_DIM
+from model import DQNetwork, FiLMDQNetwork, INPUT_DIM
+
+
+# Nombre de bits du one-hot seed (task-conditioning) — doit correspondre à INPUT_DIM
+N_SEEDS_DIM = 10   # max 10 seeds dans le curriculum (pool 0..9)
 
 
 # ---------------------------------------------------------------------------
@@ -64,13 +68,17 @@ CHECKPOINT_FREQ    = 500       # sauvegarde checkpoint (épisodes)
 # Encodage de l'observation
 # ---------------------------------------------------------------------------
 
-def encode_obs(obs: dict) -> torch.Tensor:
-    """Convertit une observation DungeonEnv en tenseur float32 de taille 304.
+def encode_obs(obs: dict, seed_idx: int = 0) -> torch.Tensor:
+    """Convertit une observation DungeonEnv en tenseur float32 de taille 314.
 
     Encodage :
-        grille    : one-hot 100×3 = 300 floats  (index = tile_idx*3 + type)
-        char_pos  : (x/9, y/9)   =   2 floats  normalisés dans [0, 1]
-        exit_pos  : (x/9, y/9)   =   2 floats  normalisés dans [0, 1]
+        grille       : one-hot 100×3 = 300 floats  (index = tile_idx*3 + type)
+        char_pos     : (x/9, y/9)   =   2 floats  normalisés dans [0, 1]
+        exit_pos     : (x/9, y/9)   =   2 floats  normalisés dans [0, 1]
+        seed one-hot : N_SEEDS_DIM  =  10 floats  (task-conditioning)
+
+    seed_idx : index du seed actif dans le pool (0 par défaut pour seed fixe).
+               Doit être dans [0, N_SEEDS_DIM - 1].
     """
     one_hot = [0.0] * 300
     for i, tile in enumerate(obs["grid"]):   # tile ∈ {0=herbe, 1=roche, 2=eau}
@@ -78,7 +86,11 @@ def encode_obs(obs: dict) -> torch.Tensor:
 
     cx, cy = obs["char_pos"]
     ex, ey = obs["exit_pos"]
-    features = one_hot + [cx / 9.0, cy / 9.0, ex / 9.0, ey / 9.0]
+
+    seed_enc = [0.0] * N_SEEDS_DIM
+    seed_enc[seed_idx] = 1.0
+
+    features = one_hot + [cx / 9.0, cy / 9.0, ex / 9.0, ey / 9.0] + seed_enc
     return torch.tensor(features, dtype=torch.float32)
 
 
@@ -187,8 +199,8 @@ class DQNAgent:
         self._eps_end   = eps_end
         self._eps_decay = eps_decay
 
-        self.q_net      = DQNetwork()
-        self.target_net = DQNetwork()
+        self.q_net      = FiLMDQNetwork()
+        self.target_net = FiLMDQNetwork()
         self.target_net.load_state_dict(self.q_net.state_dict())
         self.target_net.eval()
 
@@ -301,8 +313,8 @@ def _run_episode(
 ) -> tuple[list[str], float, dict]:
     """Joue un épisode complet. Retourne (moves, ep_reward, info)."""
     obs       = env.reset()
-    seed_idx  = env.current_seed_idx   # index du seed choisi pour cet épisode
-    state     = encode_obs(obs)
+    seed_idx  = env.current_seed_idx   # index du seed choisi pour cet épisode (constant)
+    state     = encode_obs(obs, seed_idx=seed_idx)
     done      = False
     moves:    list[str] = []
     ep_reward = 0.0
@@ -311,7 +323,7 @@ def _run_episode(
         action_idx                   = agent.select_action(state)
         action                       = ACTIONS[action_idx]
         next_obs, reward, done, info = env.step(action)
-        next_state                   = encode_obs(next_obs)
+        next_state                   = encode_obs(next_obs, seed_idx=seed_idx)
 
         buf.push(state, action_idx, reward, next_state, done, seed_idx=seed_idx)
         agent.learn(buf)

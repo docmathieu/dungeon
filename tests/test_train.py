@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 import torch
 
-from model import DQNetwork, INPUT_DIM, OUTPUT_DIM, HIDDEN1, HIDDEN2, HIDDEN3
+from model import DQNetwork, FiLMDQNetwork, INPUT_DIM, OUTPUT_DIM, HIDDEN1, HIDDEN2, HIDDEN3, OBS_DIM, TASK_DIM
 from dungeon_env import DungeonEnv
 from train import (
     encode_obs,
@@ -24,6 +24,7 @@ from train import (
     EPSILON_START,
     EPSILON_END,
     BUFFER_SIZE,
+    N_SEEDS_DIM,
 )
 
 
@@ -62,7 +63,7 @@ class TestEncodeObs:
 
     def test_output_shape(self):
         t = encode_obs(_dummy_obs())
-        assert t.shape == (INPUT_DIM,)  # 304
+        assert t.shape == (INPUT_DIM,)  # 314
 
     def test_dtype_is_float32(self):
         t = encode_obs(_dummy_obs())
@@ -106,6 +107,20 @@ class TestEncodeObs:
         t = encode_obs(obs)
         assert t[300].item() == 0.0
         assert t[301].item() == 0.0
+
+    def test_seed_one_hot_default_is_first_slot(self):
+        """seed_idx=0 (défaut) : bit 304 actif, bits 305-313 inactifs."""
+        t = encode_obs(_dummy_obs())
+        assert t[304].item() == 1.0
+        for i in range(1, N_SEEDS_DIM):
+            assert t[304 + i].item() == 0.0
+
+    def test_seed_one_hot_for_given_index(self):
+        """seed_idx=3 : bit 307 actif, tous les autres inactifs."""
+        t = encode_obs(_dummy_obs(), seed_idx=3)
+        for i in range(N_SEEDS_DIM):
+            expected = 1.0 if i == 3 else 0.0
+            assert t[304 + i].item() == expected
 
 
 # ===========================================================================
@@ -188,6 +203,54 @@ class TestDQNetwork:
         net = DQNetwork()
         out = net(torch.zeros(INPUT_DIM))
         assert out.dtype == torch.float32
+
+
+# ===========================================================================
+# FiLMDQNetwork
+# ===========================================================================
+
+class TestFiLMDQNetwork:
+    def test_is_nn_module(self):
+        assert isinstance(FiLMDQNetwork(), torch.nn.Module)
+
+    def test_output_shape_single_input(self):
+        net = FiLMDQNetwork()
+        x   = torch.zeros(INPUT_DIM)
+        assert net(x).shape == (OUTPUT_DIM,)
+
+    def test_output_shape_batch(self):
+        net   = FiLMDQNetwork()
+        batch = torch.zeros(8, INPUT_DIM)
+        assert net(batch).shape == (8, OUTPUT_DIM)
+
+    def test_output_is_float32(self):
+        net = FiLMDQNetwork()
+        assert net(torch.zeros(INPUT_DIM)).dtype == torch.float32
+
+    def test_obs_dim_and_task_dim(self):
+        """Les constantes OBS_DIM + TASK_DIM doivent sommer à INPUT_DIM."""
+        assert OBS_DIM + TASK_DIM == INPUT_DIM
+
+    def test_different_seeds_give_different_outputs(self):
+        """Deux seeds distincts doivent produire des Q-values différentes."""
+        net = FiLMDQNetwork()
+        base = torch.zeros(INPUT_DIM)
+
+        obs_seed0 = base.clone(); obs_seed0[OBS_DIM + 0] = 1.0
+        obs_seed1 = base.clone(); obs_seed1[OBS_DIM + 1] = 1.0
+
+        with torch.no_grad():
+            out0 = net(obs_seed0)
+            out1 = net(obs_seed1)
+        assert not torch.allclose(out0, out1)
+
+    def test_same_seed_gives_same_output(self):
+        """Le même input doit toujours produire le même output (déterministe)."""
+        net = FiLMDQNetwork()
+        x   = torch.zeros(INPUT_DIM)
+        x[OBS_DIM] = 1.0   # seed 0 actif
+        with torch.no_grad():
+            assert torch.allclose(net(x), net(x))
 
 
 # ===========================================================================
@@ -474,7 +537,7 @@ class TestSaveCheckpoint:
         agent = DQNAgent()
         _save_checkpoint(agent, tmp_path, ep=500, episodes=3000,
                          score=80, t0=0.0, verbose=False)
-        net = DQNetwork()
+        net = FiLMDQNetwork()
         net.load_state_dict(torch.load(tmp_path / "ep500.pt",
                                        weights_only=True))
 
@@ -519,11 +582,11 @@ class TestTrainLoop:
         assert (model_dir / "final.pt").exists()
 
     def test_checkpoint_loadable(self, tmp_path):
-        """Le checkpoint final doit pouvoir être rechargé dans un DQNetwork."""
+        """Le checkpoint final doit pouvoir être rechargé dans un FiLMDQNetwork."""
         model_dir = tmp_path / "models"
         train(episodes=3, seed=42, log_path=tmp_path / "t.jsonl",
               model_dir=model_dir, verbose=False)
-        net = DQNetwork()
+        net = FiLMDQNetwork()
         net.load_state_dict(torch.load(model_dir / "final.pt",
                                        weights_only=True))
 
@@ -554,7 +617,7 @@ class TestTrainLoop:
         """Les poids du checkpoint pretrained doivent être chargés avant l'entraînement."""
         pre_dir = tmp_path / "20260527_1222_seed42_ep2000"
         pre_dir.mkdir()
-        net = DQNetwork()
+        net = FiLMDQNetwork()
         for p in net.parameters():
             p.data.fill_(0.5)
         torch.save(net.state_dict(), pre_dir / "final.pt")
