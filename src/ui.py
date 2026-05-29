@@ -413,6 +413,7 @@ class GameUI:
             return
         self._ai_trails = []
         self._anim_idx  = -1
+        self._ai_stats  = None   # réinitialisé avant le calcul
         self._loading_progress = 0.0
 
         def _load() -> None:
@@ -475,6 +476,7 @@ class GameUI:
             return
         self._ai_trails       = []
         self._anim_idx        = -1
+        self._ai_stats        = None   # réinitialisé avant le calcul
         self._ai_optimal_path = self._state.optimal_path   # capturé avant le thread
 
         def _rerun() -> None:
@@ -520,6 +522,7 @@ class GameUI:
         elif self._ai_run_dir is not None:
             self._load_multi(self._ai_run_dir, self._current_seed)
         elif self._ai_net is not None:
+            self._ai_stats = None   # réinitialisé avant le calcul
             try:
                 from exploit import run_one_episode_info
                 trail, won, score = run_one_episode_info(self._ai_net, seed=self._current_seed)

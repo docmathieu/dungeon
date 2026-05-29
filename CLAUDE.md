@@ -15,7 +15,7 @@ Ce POC est la première étape vers un système d'**apprentissage par renforceme
 - **Python** : 3.12 (LTS-équivalent, supporté jusqu'en 2028)
 - **Graphique** : pygame (SDL2)
 - **RL (à venir)** : PyTorch + Stable-Baselines3
-- **Tests** : pytest (233 tests, 0 échec)
+- **Tests** : pytest (249 tests, 0 échec)
 - **Exécutable** : PyInstaller
 
 ## Structure du projet
@@ -258,18 +258,22 @@ python tools/migrate_models.py             # migration réelle
 **Boutons IA dans l'UI (ligne 2 du HUD bas) :**
 - `[IA simple model]` : file picker `.pt` → joue un épisode complet (epsilon=0) → tracé orange + chemin optimal rouge
 - `[IA multi model]` : directory picker `*_run/` → charge TOUS les checkpoints en thread de fond → animation 200ms/trail avec barre de progression → chemin optimal rouge en fin d'animation
-- `[IA restart]` : relance l'animation (trails présents) ou recalcule les trails sans relire le disque (nets en cache `_ai_nets_cache`), ou reload complet si cache vide
+- `[IA restart]` : relance l'animation (trails présents) ou recalcule les trails sans relire le disque (nets en cache `_ai_nets_cache`), ou reload complet si cache vide ; réinitialise les stats avant chaque nouveau calcul
 
-**Palette de couleurs (5 stages) :**
-| Stage | Couleur |
-|-------|---------|
-| 1 | Bleu clair `(0, 200, 255)` |
-| 2 | Vert `(0, 220, 100)` |
-| 3 | Violet `(180, 100, 255)` |
-| 4 | Orange `(255, 140, 0)` |
-| 5 | Magenta `(220, 0, 200)` |
+**Ligne 3 du HUD bas — statistiques IA :**
+Affichée sous les boutons IA : `Trail X/N   |   Victoires : Y/N   |   Note moy : ZZ`
+- **Trail X/N** : progression de l'animation (mode multi uniquement)
+- **Victoires : Y/N** : nombre d'épisodes gagnés / total chargés
+- **Note moy : ZZ** : `scores_sum / total_episodes` — les échecs (score 0) sont inclus dans la moyenne, ce qui reflète la performance globale réelle du modèle
+- Les stats se remettent à zéro à chaque nouveau terrain (reset) et à chaque clic sur IA restart
+- Pendant le chargement multi, les stats se mettent à jour incrémentalement
 
+**Couleur unique IA : orange `(255, 140, 0)`**
 Alpha par checkpoint : 50 (premier d'un stage) → 220 (dernier), dégradé linéaire.
+
+**`run_one_episode_info(net, seed, seed_idx=0)` dans `exploit.py` :**
+Variante de `run_one_episode` retournant `(trail, won, score)`.
+`run_one_episode` délègue désormais à `run_one_episode_info` pour éviter la duplication.
 
 **Replay stratifié ✅ implémenté + run effectué (2026-05-27)**
 `StratifiedReplayBuffer(capacity, n_seeds)` : un sous-buffer par seed, batch toujours équilibré.
@@ -341,7 +345,7 @@ L'architecture réelle de chaque run a été vérifiée via les poids des checkp
 - ~~Métadonnées dans les logs~~ ✅ `_log_meta()` : ligne `{"type":"meta"}` en tête de chaque fichier
 
 **Session du 2026-05-29 :**
-- **332 tests, 0 échec.**
+- **249 tests, 0 échec.**
 - Analyse rétrospective des runs 2026-05-28 : win rate max vs final par architecture (voir tableau ci-dessus).
 - Décision : prochain run en **task-cond** (meilleur pic pool10 : 59%, pool6 très stable à 68% final, 2× plus rapide que FiLM).
 
