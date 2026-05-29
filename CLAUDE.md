@@ -15,7 +15,7 @@ Ce POC est la première étape vers un système d'**apprentissage par renforceme
 - **Python** : 3.12 (LTS-équivalent, supporté jusqu'en 2028)
 - **Graphique** : pygame (SDL2)
 - **RL (à venir)** : PyTorch + Stable-Baselines3
-- **Tests** : pytest (221 tests, 0 échec)
+- **Tests** : pytest (230 tests, 0 échec)
 - **Exécutable** : PyInstaller
 
 ## Structure du projet
@@ -45,8 +45,10 @@ dungeon/claude/
 │   ├── model.py          ← DQNetwork MLP 304→128→64→4 (Phase 2 RL)
 │   ├── train.py          ← boucle DQN, ReplayBuffer, DQNAgent, logs JSON (Phase 2 RL)
 │   ├── curriculum.py     ← curriculum progressif par étapes de seeds (Phase 2 RL)
-│   ├── exploit.py        ← load_net(), run_one_episode() — mode exploitation IA (Phase 3 RL)
-│   └── ui.py             ← GameUI, rendu pygame, boutons [▶ IA] / [↺ IA]
+│   ├── exploit.py        ← load_net(), run_one_episode(), scan_run_dir() (Phase 3 RL)
+│   └── ui.py             ← GameUI, rendu pygame, [IA simple model] [IA multi model] [IA restart]
+├── tools/
+│   └── migrate_models.py ← migration dossiers existants vers structure *_run/
 └── tests/
     ├── conftest.py        ← sys.path setup
     ├── helpers.py         ← FakeGrid partagée
@@ -55,7 +57,7 @@ dungeon/claude/
     ├── test_dungeon_env.py ← tests DungeonEnv
     ├── test_train.py       ← tests encode_obs, ReplayBuffer, DQNetwork, DQNAgent
     ├── test_curriculum.py  ← tests _win_rate, _train_stage, run_curriculum
-    └── test_exploit.py     ← tests load_net, run_one_episode
+    └── test_exploit.py     ← tests load_net, run_one_episode, scan_run_dir
 ```
 
 ## Spécification du jeu
@@ -230,18 +232,44 @@ Progrès notables : Stage 1 converge 31% plus vite. Stage 4 atteint 32% de win r
 Stage 3 est plus stable (pas de cliff brutal — 22% en fin vs 12%).
 Catastrophic forgetting reste présent mais atténué par lr=1e-4 et la capacité réseau accrue.
 
-#### Phase 3 — Visualisation pygame ✅ version light implémentée (2026-05-29)
-Fichiers : `src/exploit.py`, `src/ui.py` (boutons `[▶ IA]` / `[↺ IA]`)
+#### Phase 3 — Visualisation pygame ✅ implémentée (2026-05-29)
+Fichiers : `src/exploit.py`, `src/ui.py`, `tools/migrate_models.py`
 
-**Mode exploitation IA dans l'UI :**
-- `[▶ IA]` : file picker → charge un checkpoint `.pt` → joue un épisode complet (epsilon=0, boucle jusqu'à victoire ou MAX_STEPS) → affiche le tracé cyan sur le terrain courant
-- `[↺ IA]` : rejoue le modèle déjà chargé sur le terrain affiché (utile après restart ou changement de seed)
-- Tracé cyan effacé automatiquement au chargement d'un nouveau terrain
-- Détection automatique d'architecture (FiLMDQNetwork / DQNetwork) via les clés du state_dict
+**Structure de dossiers des runs (depuis cette session) :**
+```
+models/
+└── 20260529_1258_run/          ← créé par curriculum.py, sélectionnable depuis l'UI
+    ├── 20260529_1258_pool2_ep5000/
+    │   ├── ep500.pt … final.pt
+    └── 20260529_1301_pool4_ep5000_from_1258/
+        └── ep500.pt … final.pt
+logs/
+└── 20260529_1258_run/
+    ├── 20260529_1258_pool2_ep5000.jsonl
+    └── …
+```
 
-**Prochaine étape (visualisation avancée) :**
-- Charger plusieurs checkpoints d'une même run (ep500, ep1000…) et animer la progression de l'IA
-- Affichage multi-trails avec dégradé alpha par étape de curriculum
+**Migration des runs existants :**
+```bash
+python tools/migrate_models.py --dry-run   # prévisualisation
+python tools/migrate_models.py             # migration réelle
+```
+
+**Boutons IA dans l'UI (ligne 2 du HUD bas) :**
+- `[IA simple model]` : file picker `.pt` → joue un épisode complet (epsilon=0) → tracé cyan
+- `[IA multi model]` : directory picker `*_run/` → charge TOUS les checkpoints en thread de fond → animation 200ms/trail avec barre de progression
+- `[IA restart]` : relance l'animation depuis le début (multi) ou re-joue le modèle (simple)
+
+**Palette de couleurs (5 stages) :**
+| Stage | Couleur |
+|-------|---------|
+| 1 | Bleu clair `(0, 200, 255)` |
+| 2 | Vert `(0, 220, 100)` |
+| 3 | Violet `(180, 100, 255)` |
+| 4 | Orange `(255, 140, 0)` |
+| 5 | Magenta `(220, 0, 200)` |
+
+Alpha par checkpoint : 50 (premier d'un stage) → 220 (dernier), dégradé linéaire.
 
 **Replay stratifié ✅ implémenté + run effectué (2026-05-27)**
 `StratifiedReplayBuffer(capacity, n_seeds)` : un sous-buffer par seed, batch toujours équilibré.

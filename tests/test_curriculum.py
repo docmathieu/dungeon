@@ -151,17 +151,20 @@ class TestRunCurriculum:
 
     def test_creates_one_log_per_stage(self, tmp_path):
         run_curriculum(**self._base_args(tmp_path))
-        assert len(list((tmp_path / "logs").glob("*.jsonl"))) == 2
+        # Les logs sont maintenant dans un sous-dossier *_run/
+        assert len(list((tmp_path / "logs").rglob("*.jsonl"))) == 2
 
     def test_each_stage_has_final_pt(self, tmp_path):
         run_curriculum(**self._base_args(tmp_path))
-        for d in (tmp_path / "models").iterdir():
-            if d.is_dir():
-                assert (d / "final.pt").exists()
+        # Les model dirs sont dans un sous-dossier *_run/ — chercher récursivement
+        for d in (tmp_path / "models").rglob("final.pt"):
+            assert d.exists()
+        # S'assurer qu'il y a bien 2 final.pt (un par stage)
+        assert len(list((tmp_path / "models").rglob("final.pt"))) == 2
 
     def test_second_stage_name_contains_from(self, tmp_path):
         run_curriculum(**self._base_args(tmp_path))
-        logs = sorted((tmp_path / "logs").glob("*.jsonl"), key=lambda p: p.stat().st_mtime)
+        logs = sorted((tmp_path / "logs").rglob("*.jsonl"), key=lambda p: p.stat().st_mtime)
         assert "_from_" in logs[1].name
 
     def test_per_stage_lr_routes_correctly(self, tmp_path):

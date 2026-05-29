@@ -10,9 +10,9 @@ Utilisation :
                              --win-rate-threshold 0.8 \\
                              --lr 3e-4,1e-4
 
-Produits (un par étape) :
-    logs/yyyymmdd_hhmm_{label}_ep{N}[_from_{timestamp}].jsonl
-    models/yyyymmdd_hhmm_{label}_ep{N}[_from_{timestamp}]/ep<N>.pt + final.pt
+Produits (regroupés sous un dossier racine commun au run) :
+    logs/{run_ts}_run/{label}_ep{N}[_from_{timestamp}].jsonl
+    models/{run_ts}_run/{label}_ep{N}[_from_{timestamp}]/ep<N>.pt + final.pt
 """
 
 import argparse
@@ -168,6 +168,12 @@ def run_curriculum(
         lr = [LEARNING_RATE]
     lrs = _pad_lr(lr, len(stages))
 
+    # Timestamp unique pour tout le run curriculum — crée les dossiers racines
+    run_ts        = _now()
+    run_label     = f"{run_ts}_run"
+    run_log_dir   = log_dir   / run_label
+    run_model_dir = model_dir / run_label
+
     for stage_idx, n_seeds in enumerate(stages):
         stage_pool = pool[:n_seeds]
         timestamp  = _now()
@@ -200,8 +206,8 @@ def run_curriculum(
             win_rate_threshold = win_rate_threshold,
             lr                 = lrs[stage_idx],
             pretrained         = pretrained,
-            log_path           = log_dir  / f"{run}.jsonl",
-            model_dir          = model_dir / run,
+            log_path           = run_log_dir  / f"{run}.jsonl",
+            model_dir          = run_model_dir / run,
             verbose            = verbose,
             arch               = arch,
             stage_meta         = stage_meta,
