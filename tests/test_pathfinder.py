@@ -1,4 +1,9 @@
-"""Unit tests for PathFinder (Dijkstra shortest-path)."""
+"""Unit tests for PathFinder (Dijkstra shortest-path).
+
+Removed : test_path_length_equals_manhattan_distance (covered by cost_equals_manhattan),
+          test_direct_water_cheaper_than_long_detour (duplicate of single_water_cell_costs_two),
+          test_find_and_cost_agree_on_mixed_terrain (duplicate of walked_cost_matches_reported).
+"""
 import pytest
 
 from grid import TileType
@@ -67,17 +72,12 @@ class TestPathFinderBasic:
             cost = self.pf.shortest_cost(self.grid, start, end)
             assert cost == abs(end[0] - start[0]) + abs(end[1] - start[1])
 
-    def test_path_length_equals_manhattan_distance_on_all_grass(self):
-        start, end = (2, 1), (5, 4)
-        path = self.pf.find_shortest_path(self.grid, start, end)
-        assert len(path) == abs(end[0] - start[0]) + abs(end[1] - start[1])
-
     def test_far_corner_to_far_corner(self):
         start, end = (0, 0), (9, 9)
         path = self.pf.find_shortest_path(self.grid, start, end)
         final, cost = walk(self.grid, start, path)
         assert final == end
-        assert cost == 18  # Manhattan distance
+        assert cost == 18
 
 
 # ===========================================================================
@@ -94,7 +94,7 @@ class TestPathFinderWater:
 
     def test_water_then_grass_cost_is_three(self):
         grid = FakeGrid(overrides={(1, 0): TileType.WATER})
-        assert self.pf.shortest_cost(grid, (0, 0), (2, 0)) == 3  # water(2) + grass(1)
+        assert self.pf.shortest_cost(grid, (0, 0), (2, 0)) == 3
 
     def test_path_through_water_is_correct(self):
         grid = FakeGrid(overrides={(1, 0): TileType.WATER})
@@ -111,8 +111,6 @@ class TestPathFinderWater:
             (3, 0): TileType.WATER,
         }
         grid = FakeGrid(overrides)
-        # Direct (0,0)→(4,0): water+water+water+grass = 2+2+2+1 = 7
-        # Detour via row 1:   down+right×4+up = 1+1+1+1+1+1 = 6
         assert self.pf.shortest_cost(grid, (0, 0), (4, 0)) == 6
 
     def test_detour_path_arrives_at_destination(self):
@@ -128,11 +126,6 @@ class TestPathFinderWater:
         assert final == end
         assert cost == 6
 
-    def test_direct_water_cheaper_than_long_detour(self):
-        """One water cell (cost 2) is cheaper than a 3-step all-grass detour (cost 3)."""
-        grid = FakeGrid(overrides={(1, 0): TileType.WATER})
-        assert self.pf.shortest_cost(grid, (0, 0), (1, 0)) == 2
-
 
 # ===========================================================================
 # Obstacles — rocks blocking paths
@@ -143,7 +136,6 @@ class TestPathFinderObstacles:
         self.pf = PathFinder()
 
     def test_no_path_from_enclosed_corner(self):
-        """(0,0) enclosed: boundary blocks UP/LEFT, rocks block RIGHT/DOWN."""
         overrides = {(1, 0): TileType.ROCK, (0, 1): TileType.ROCK}
         grid = FakeGrid(overrides)
         assert self.pf.find_shortest_path(grid, (0, 0), (5, 5)) is None
@@ -163,13 +155,11 @@ class TestPathFinderObstacles:
         assert final == end
 
     def test_detour_around_rock_costs_more_than_direct(self):
-        """Direct (0,0)→(2,0) costs 2 on grass; rock forces 4-step detour costing 4."""
         overrides = {(1, 0): TileType.ROCK}
         grid = FakeGrid(overrides)
         assert self.pf.shortest_cost(grid, (0, 0), (2, 0)) == 4
 
     def test_corridor_only_valid_route(self):
-        """Only column x=5 is passable; path must travel that column."""
         overrides = {
             (x, y): TileType.ROCK
             for y in range(10)
@@ -183,7 +173,6 @@ class TestPathFinderObstacles:
         assert self.pf.shortest_cost(grid, (5, 0), (5, 9)) == 9
 
     def test_path_around_rock_wall_arrives_correctly(self):
-        """Vertical rock wall from (5,0) to (5,8) forces a detour around (5,9)."""
         overrides = {(5, y): TileType.ROCK for y in range(9)}
         grid = FakeGrid(overrides)
         start, end = (0, 0), (9, 0)
@@ -209,28 +198,13 @@ class TestPathFinderCostConsistency:
         _, walked = walk(grid, start, path)
         assert walked == reported
 
-    def test_find_and_cost_agree_on_mixed_terrain(self):
-        overrides = {
-            (1, 0): TileType.WATER,
-            (2, 1): TileType.ROCK,
-            (3, 2): TileType.WATER,
-        }
-        grid = FakeGrid(overrides)
-        start, end = (0, 0), (5, 4)
-        path = self.pf.find_shortest_path(grid, start, end)
-        assert path is not None
-        final, walked = walk(grid, start, path)
-        reported = self.pf.shortest_cost(grid, start, end)
-        assert final == end
-        assert walked == reported
-
     def test_optimal_path_not_suboptimal(self):
         """Any other valid path to the same destination costs >= shortest_cost."""
         grid = FakeGrid(overrides={(1, 0): TileType.WATER})
         start, end = (0, 0), (2, 0)
         best = self.pf.shortest_cost(grid, start, end)
-        # Manually compute the two candidate paths
-        direct_cost = grid.move_cost(1, 0) + grid.move_cost(2, 0)   # via water: 3
-        detour_cost = grid.move_cost(0, 1) + grid.move_cost(1, 1) + grid.move_cost(2, 1) + grid.move_cost(2, 0)  # 4
+        direct_cost  = grid.move_cost(1, 0) + grid.move_cost(2, 0)
+        detour_cost  = (grid.move_cost(0, 1) + grid.move_cost(1, 1)
+                        + grid.move_cost(2, 1) + grid.move_cost(2, 0))
         assert best <= direct_cost
         assert best <= detour_cost
