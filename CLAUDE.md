@@ -258,7 +258,7 @@ python tools/migrate_models.py             # migration réelle
 **Boutons IA dans l'UI (ligne 2 du HUD bas) :**
 - `[IA simple model]` : file picker `.pt` → joue un épisode complet (epsilon=0) → tracé cyan
 - `[IA multi model]` : directory picker `*_run/` → charge TOUS les checkpoints en thread de fond → animation 200ms/trail avec barre de progression
-- `[IA restart]` : relance l'animation depuis le début (multi) ou re-joue le modèle (simple)
+- `[IA restart]` : relance l'animation (trails présents) ou recalcule les trails sans relire le disque (nets en cache `_ai_nets_cache`), ou reload complet si cache vide
 
 **Palette de couleurs (5 stages) :**
 | Stage | Couleur |

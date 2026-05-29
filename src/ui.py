@@ -74,7 +74,9 @@ class GameUI:
         self._ai_net = None   # torch.nn.Module chargé
 
         # Mode IA multi (animation multi-checkpoints)
-        self._ai_trails: list[dict] = []   # [{trail, color, alpha, stage_idx}]
+        self._ai_trails: list[dict] = []      # [{trail, color, alpha, stage_idx}]
+        self._ai_nets_cache: list[dict] = []  # [{net, color, alpha, stage_idx}] — persistant entre resets
+        self._ai_run_dir: Path | None = None  # dossier *_run/ chargé (conservé après reset)
         self._anim_idx: int = -1            # index du trail actuellement visible
         self._anim_last_ms: int = 0
         self._loading_progress: float | None = None   # None=inactif, 0..1=chargement
@@ -288,7 +290,8 @@ class GameUI:
         self._ai_multi_rect = ai_multi_rect
 
         # [IA restart]
-        can_restart = bool(self._ai_trails) or self._ai_net is not None
+        can_restart = (bool(self._ai_trails) or bool(self._ai_nets_cache)
+                       or self._ai_net is not None or self._ai_run_dir is not None)
         rst_col = CYAN if can_restart else GREY
         ai_restart_rect = pygame.Rect(254, row2_y, 90, 28)
         pygame.draw.rect(self._screen, DARK, ai_restart_rect)
@@ -330,7 +333,7 @@ class GameUI:
             print(f"[IA simple] Erreur : {exc}")
 
     def _run_ai_multi(self) -> None:
-        """Directory picker → charge tous les checkpoints d'un run → anime."""
+        """Directory picker → mémorise le dossier → lance le chargement."""
         if self._loading_progress is not None:
             return   # chargement déjà en cours
         root = tkinter.Tk()
@@ -342,12 +345,16 @@ class GameUI:
         root.destroy()
         if not run_dir_str:
             return
+        self._ai_run_dir = Path(run_dir_str)
+        self._load_multi(self._ai_run_dir, self._current_seed)
 
-        run_dir = Path(run_dir_str)
+    def _load_multi(self, run_dir: Path, seed: int | None) -> None:
+        """Lance le chargement de tous les checkpoints du run en thread de fond."""
+        if self._loading_progress is not None:
+            return
         self._ai_trails = []
         self._anim_idx  = -1
         self._loading_progress = 0.0
-        seed_snapshot = self._current_seed   # capture du seed au moment du clic
 
         def _load() -> None:
             from exploit import scan_run_dir, load_net, run_one_episode
@@ -358,33 +365,32 @@ class GameUI:
                     return
 
                 n = len(checkpoints)
-                # Pré-calcul des alphas : au sein d'un stage, 1er=50 → dernier=220
                 stage_counts: dict[int, int] = {}
                 for cp in checkpoints:
                     s = cp["stage_idx"]
                     stage_counts[s] = stage_counts.get(s, 0) + 1
                 stage_seen: dict[int, int] = {}
 
-                trails: list[dict] = []
+                nets_cache: list[dict] = []
+                trails:     list[dict] = []
                 for i, cp in enumerate(checkpoints):
                     net   = load_net(cp["pt_path"])
-                    trail = run_one_episode(net, seed=seed_snapshot)
+                    trail = run_one_episode(net, seed=seed)
                     s     = cp["stage_idx"]
                     stage_seen[s] = stage_seen.get(s, 0) + 1
-                    k     = stage_seen[s]          # position 1-based dans le stage
-                    n_s   = stage_counts[s]        # total checkpoints du stage
+                    k     = stage_seen[s]
+                    n_s   = stage_counts[s]
                     alpha = int(50 + 170 * k / n_s)
-                    trails.append({
-                        "trail":     trail,
-                        "color":     cp["color"],
-                        "alpha":     alpha,
-                        "stage_idx": s,
-                    })
+                    nets_cache.append({"net": net, "color": cp["color"],
+                                       "alpha": alpha, "stage_idx": s})
+                    trails.append({"trail": trail, "color": cp["color"],
+                                   "alpha": alpha, "stage_idx": s})
                     self._loading_progress = (i + 1) / n
 
-                self._ai_trails  = trails
-                self._anim_idx   = -1
-                self._anim_last_ms = pygame.time.get_ticks()
+                self._ai_nets_cache = nets_cache   # persistant — réutilisé sans disque
+                self._ai_trails     = trails
+                self._anim_idx      = -1
+                self._anim_last_ms  = pygame.time.get_ticks()
             except Exception as exc:
                 print(f"[IA multi] Erreur : {exc}")
             finally:
@@ -393,11 +399,44 @@ class GameUI:
         self._loading_thread = threading.Thread(target=_load, daemon=True)
         self._loading_thread.start()
 
+    def _rerun_from_cache(self, seed: int | None) -> None:
+        """Rejoue tous les modèles en cache sur un nouveau seed, sans relire le disque."""
+        if not self._ai_nets_cache or self._loading_progress is not None:
+            return
+        self._ai_trails = []
+        self._anim_idx  = -1
+
+        def _rerun() -> None:
+            from exploit import run_one_episode
+            try:
+                trails: list[dict] = []
+                for entry in self._ai_nets_cache:
+                    trail = run_one_episode(entry["net"], seed=seed)
+                    trails.append({"trail": trail, "color": entry["color"],
+                                   "alpha": entry["alpha"], "stage_idx": entry["stage_idx"]})
+                self._ai_trails    = trails
+                self._anim_idx     = -1
+                self._anim_last_ms = pygame.time.get_ticks()
+            except Exception as exc:
+                print(f"[IA restart multi] Erreur : {exc}")
+
+        threading.Thread(target=_rerun, daemon=True).start()
+
     def _restart_ai_anim(self) -> None:
-        """Relance l'animation depuis le début (multi) ou re-joue le modèle simple."""
+        """Relance l'animation ou recalcule les trails pour le terrain courant.
+
+        - Trails présents (terrain inchangé) → redémarre l'animation depuis le début.
+        - Nouveau terrain + nets en cache → rejoue les épisodes sans relire le disque.
+        - Nouveau terrain + run_dir connu, cache vide → rechargement complet depuis disque.
+        - Nouveau terrain + modèle simple → rejoue le modèle simple.
+        """
         if self._ai_trails:
             self._anim_idx     = -1
             self._anim_last_ms = pygame.time.get_ticks()
+        elif self._ai_nets_cache:
+            self._rerun_from_cache(self._current_seed)
+        elif self._ai_run_dir is not None:
+            self._load_multi(self._ai_run_dir, self._current_seed)
         elif self._ai_net is not None:
             try:
                 from exploit import run_one_episode
