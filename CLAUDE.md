@@ -370,26 +370,61 @@ après inspection visuelle dans l'UI (champ de saisie de seed ajouté au HUD).
 | 8 | 88 | Difficile (coût 21+) | chemin long et tortueux |
 | 9 | 361 | Difficile (coût 21+) | chemin long et tortueux |
 
-**⏭️ Prochaine étape :**
+**⏭️ Prochaine session — Généralisation par élargissement du pool**
 
-**Objectif : curriculum progressif sur les 10 seeds pédagogiques.**
+### Objectif
+Démontrer que le réseau peut transférer sa connaissance à des seeds **jamais vus pendant l'entraînement**.
+Metric clé : win rate sur seeds hors-training.
 
-Curriculum en 5 étapes (2 seeds par groupe), architecture task-cond :
+### Décision architecturale
+Le task-conditioning (one-hot seed, 10 bits) apprend au réseau à tricher ("je suis sur le seed 3 → tourne à droite"). Sur un seed inconnu, ce signal n'a plus de sens. Pour la généralisation, le réseau doit décider **uniquement depuis la grille visible**.
+
+→ Nouveau réseau `ObsDQNetwork` (304→256→128→64→4, sans one-hot seed) + option `--architecture obs` dans `train.py` et `curriculum.py`.
+
+### Étape 0 — Baseline généralisation (avant tout entraînement)
+Créer `src/evaluate.py` : prend un checkpoint, teste sur N seeds, retourne win rate + score moyen.
 ```bash
-.venv\Scripts\python.exe src/curriculum.py `
-    --pool 1619,1240,113,173,57,61,87,278,88,361 `
-    --stages 2,4,6,8,10 `
-    --max-episodes-per-stage 5000 `
-    --win-rate-threshold 0.8 `
-    --lr 3e-4,1e-4 `
-    --architecture taskcond
+python src/evaluate.py --checkpoint models/.../final.pt --seeds 100-299
 ```
-Durée estimée : ~2h30. Le curriculum part des seeds faciles (groupe 1) et ajoute progressivement
-la difficulté, ce qui devrait éviter le catastrophic forgetting observé sur des pools homogènes.
+Tester le meilleur checkpoint existant (run 28/1039, 59% pool10) sur seeds 100–299.
+Ce chiffre devient la **baseline de généralisation**.
+
+### Étape 1 — Entraînement pool100 sans task-conditioning
+```bash
+python src/train.py --episodes 20000 --seed-pool 0-99 --architecture obs --lr 3e-4
+```
+- 100 seeds, tirage aléatoire à chaque épisode (la diversité naturelle est le curriculum)
+- Checkpoints toutes les 2000 épisodes
+- Évaluation après chaque checkpoint sur seeds 100–199 (jamais vus)
+
+### Étape 2 — Décision selon les résultats
+| Win rate sur seeds inconnus | Action suivante |
+|-----------------------------|-----------------|
+| > 40% | ✅ Généralisation amorcée → passer à pool500 |
+| 20–40% | 🔄 Ajouter curriculum léger (50→100) + plus d'épisodes |
+| < 20% | 🔍 Diagnostic : le réseau mémorise plutôt qu'il ne comprend |
+
+### Étape 3 — Montée en charge (si étape 2 positive)
+```
+pool100 → pool500 → pool2000 → seed=None (full random)
+```
+À chaque palier : transfer learning depuis le checkpoint précédent, évaluation sur 200 seeds hors-training.
+
+### Métriques de succès de la session
+| Metric | Cible |
+|--------|-------|
+| Win rate seeds entraînement | > 60% |
+| Win rate seeds **inconnus** | > 40% |
+| Score moyen victoires inconnus | > 50 |
+
+### Nouveaux fichiers à créer
+- `src/evaluate.py` — test d'un checkpoint sur N seeds, rapport win rate / score / distribution
+- Ajout `ObsDQNetwork` dans `model.py` (INPUT_DIM = OBS_DIM = 304)
+- Ajout `--architecture obs` dans `train.py` et `curriculum.py`
 
 ### Stratégie terrains (détail)
-| Option | Description | Quand |
-|--------|-------------|-------|
-| B — Pool fixe | pool 10–100 seeds, decay adaptatif | Référence |
-| C — Curriculum | Difficulté progressive par étapes | ← En cours |
+| Option | Description | Statut |
+|--------|-------------|--------|
+| C — Curriculum 10 seeds | Difficulté progressive par étapes | ✅ Testé (59% max pool10) |
+| B — Pool fixe large | pool 100–2000 seeds, sans task-cond | ← **Prochaine session** |
 | A — Full random | Nouveau terrain à chaque épisode | Long terme |
