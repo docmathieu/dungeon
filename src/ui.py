@@ -22,6 +22,7 @@ YELLOW = (255, 255,   0)
 RED    = (220,  50,  50)
 DARK   = ( 40,  40,  40)
 CYAN   = (  0, 220, 220)
+ORANGE = (255, 140,   0)   # couleur unique des tracés IA
 
 OPTIMAL_TRAIL_OFFSET = 2   # px shift so optimal trail doesn't overlap player trail
 
@@ -162,7 +163,7 @@ class GameUI:
             ra = _tile_rect(ax, ay)
             rb = _tile_rect(bx, by)
             pygame.draw.line(
-                self._screen, CYAN,
+                self._screen, ORANGE,
                 (ra.centerx, ra.centery),
                 (rb.centerx, rb.centery),
                 3,
