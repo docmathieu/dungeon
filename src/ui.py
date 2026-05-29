@@ -1,7 +1,11 @@
 import random
 import sys
+import tkinter
+import tkinter.filedialog
 
 import pygame
+
+from pathlib import Path
 
 from grid import Grid, TileType
 from game_state import GameState
@@ -16,6 +20,7 @@ BLUE   = ( 30, 144, 255)
 YELLOW = (255, 255,   0)
 RED    = (220,  50,  50)
 DARK   = ( 40,  40,  40)
+CYAN   = (  0, 220, 220)
 
 OPTIMAL_TRAIL_OFFSET = 2   # px shift so optimal trail doesn't overlap player trail
 
@@ -60,6 +65,12 @@ class GameUI:
         self._seed_input_rect: pygame.Rect = pygame.Rect(0, 0, 0, 0)  # calculé dans _draw_hud_bot
         self._current_seed: int | None = None   # seed du terrain affiché
 
+        # Tracé IA (mode exploitation)
+        self._ai_trail: list[tuple[int, int]] | None = None
+        self._ai_net = None                                            # modèle IA chargé (torch.nn.Module)
+        self._ai_button_rect: pygame.Rect = pygame.Rect(0, 0, 0, 0)  # calculé dans _draw_hud_bot
+        self._ai_rerun_rect: pygame.Rect = pygame.Rect(0, 0, 0, 0)   # bouton ↺ IA
+
         self._reset()
 
     # ------------------------------------------------------------------
@@ -68,6 +79,7 @@ class GameUI:
         self._state = GameState.create_solvable(seed=seed)
         self._grid = self._state.grid
         self._current_seed = seed
+        self._ai_trail = None   # nouveau terrain → effacer le tracé IA
 
     def _reset_with_seed(self, seed: int) -> None:
         """Réinitialise le jeu avec un seed précis.  Si le terrain n'est pas
@@ -76,6 +88,7 @@ class GameUI:
         self._state = state
         self._grid = state.grid
         self._current_seed = seed
+        self._ai_trail = None   # nouveau terrain → effacer le tracé IA
 
     # ------------------------------------------------------------------
     def _draw(self) -> None:
@@ -83,6 +96,7 @@ class GameUI:
         self._draw_grid()
         self._draw_trail()
         self._draw_optimal_trail()
+        self._draw_ai_trail()
         self._draw_character()
         self._draw_exit()
         self._draw_hud_top()
@@ -115,6 +129,21 @@ class GameUI:
                 (ra.centerx + o, ra.centery + o),
                 (rb.centerx + o, rb.centery + o),
                 2,
+            )
+
+    def _draw_ai_trail(self) -> None:
+        if not self._ai_trail or len(self._ai_trail) < 2:
+            return
+        for i in range(len(self._ai_trail) - 1):
+            ax, ay = self._ai_trail[i]
+            bx, by = self._ai_trail[i + 1]
+            ra = _tile_rect(ax, ay)
+            rb = _tile_rect(bx, by)
+            pygame.draw.line(
+                self._screen, CYAN,
+                (ra.centerx, ra.centery),
+                (rb.centerx, rb.centery),
+                3,
             )
 
     def _draw_trail(self) -> None:
@@ -202,6 +231,53 @@ class GameUI:
         self._seed_input_rect = input_rect
         self._label("↵ valider", input_rect.right + 6, bot_y + 22, GREY)
 
+        # bouton IA — charge un modèle et joue
+        ai_rect = pygame.Rect(WIN_W - 114, bot_y + 16, 58, 28)
+        pygame.draw.rect(self._screen, DARK, ai_rect)
+        pygame.draw.rect(self._screen, CYAN, ai_rect, 1)
+        self._label("▶ IA", ai_rect.x + 8, ai_rect.y + 6, CYAN)
+        self._ai_button_rect = ai_rect
+
+        # bouton ↺ IA — rejoue le modèle déjà chargé sur le terrain courant
+        rerun_col = CYAN if self._ai_net is not None else GREY
+        rerun_rect = pygame.Rect(WIN_W - 54, bot_y + 16, 50, 28)
+        pygame.draw.rect(self._screen, DARK, rerun_rect)
+        pygame.draw.rect(self._screen, rerun_col, rerun_rect, 1)
+        self._label("↺ IA", rerun_rect.x + 4, rerun_rect.y + 6, rerun_col)
+        self._ai_rerun_rect = rerun_rect
+
+    def _run_ai(self) -> None:
+        """Ouvre un sélecteur de fichier, charge le modèle et joue un épisode complet."""
+        root = tkinter.Tk()
+        root.withdraw()
+        root.attributes("-topmost", True)
+        path_str = tkinter.filedialog.askopenfilename(
+            title="Choisir un checkpoint (.pt)",
+            filetypes=[("PyTorch checkpoint", "*.pt"), ("Tous les fichiers", "*.*")],
+        )
+        root.destroy()
+
+        if not path_str:
+            return   # annulé
+
+        try:
+            from exploit import load_net, run_one_episode
+            self._ai_net = load_net(Path(path_str))
+            # boucle complète jusqu'à victoire ou MAX_STEPS (dans run_one_episode)
+            self._ai_trail = run_one_episode(self._ai_net, seed=self._current_seed)
+        except Exception as exc:
+            print(f"[IA] Erreur chargement : {exc}")
+
+    def _rerun_ai(self) -> None:
+        """Rejoue le modèle déjà chargé sur le terrain courant sans ouvrir de file picker."""
+        if self._ai_net is None:
+            return
+        try:
+            from exploit import run_one_episode
+            self._ai_trail = run_one_episode(self._ai_net, seed=self._current_seed)
+        except Exception as exc:
+            print(f"[IA] Erreur re-run : {exc}")
+
     # ------------------------------------------------------------------
     def _handle_event(self, event: pygame.event.Event) -> None:
         if event.type == pygame.QUIT:
@@ -212,6 +288,12 @@ class GameUI:
         if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
             if self._restart_rect.collidepoint(event.pos):
                 self._reset()
+                return
+            if self._ai_button_rect.collidepoint(event.pos):
+                self._run_ai()
+                return
+            if self._ai_rerun_rect.collidepoint(event.pos):
+                self._rerun_ai()
                 return
             # Activation / désactivation du champ de saisie
             if self._seed_input_rect.collidepoint(event.pos):

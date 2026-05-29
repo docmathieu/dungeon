@@ -15,7 +15,7 @@ Ce POC est la première étape vers un système d'**apprentissage par renforceme
 - **Python** : 3.12 (LTS-équivalent, supporté jusqu'en 2028)
 - **Graphique** : pygame (SDL2)
 - **RL (à venir)** : PyTorch + Stable-Baselines3
-- **Tests** : pytest (170 tests, 0 échec)
+- **Tests** : pytest (221 tests, 0 échec)
 - **Exécutable** : PyInstaller
 
 ## Structure du projet
@@ -45,15 +45,17 @@ dungeon/claude/
 │   ├── model.py          ← DQNetwork MLP 304→128→64→4 (Phase 2 RL)
 │   ├── train.py          ← boucle DQN, ReplayBuffer, DQNAgent, logs JSON (Phase 2 RL)
 │   ├── curriculum.py     ← curriculum progressif par étapes de seeds (Phase 2 RL)
-│   └── ui.py             ← GameUI, rendu pygame, touches fléchées directes
+│   ├── exploit.py        ← load_net(), run_one_episode() — mode exploitation IA (Phase 3 RL)
+│   └── ui.py             ← GameUI, rendu pygame, boutons [▶ IA] / [↺ IA]
 └── tests/
     ├── conftest.py        ← sys.path setup
     ├── helpers.py         ← FakeGrid partagée
     ├── test_game.py       ← tests Grid, GameState, scoring, trail
     ├── test_pathfinder.py  ← tests PathFinder
-    ├── test_dungeon_env.py ← tests DungeonEnv (43 tests)
+    ├── test_dungeon_env.py ← tests DungeonEnv
     ├── test_train.py       ← tests encode_obs, ReplayBuffer, DQNetwork, DQNAgent
-    └── test_curriculum.py  ← tests _win_rate, _train_stage, run_curriculum
+    ├── test_curriculum.py  ← tests _win_rate, _train_stage, run_curriculum
+    └── test_exploit.py     ← tests load_net, run_one_episode
 ```
 
 ## Spécification du jeu
@@ -228,10 +230,18 @@ Progrès notables : Stage 1 converge 31% plus vite. Stage 4 atteint 32% de win r
 Stage 3 est plus stable (pas de cliff brutal — 22% en fin vs 12%).
 Catastrophic forgetting reste présent mais atténué par lr=1e-4 et la capacité réseau accrue.
 
-#### Phase 3 — Visualisation pygame *(après stabilisation Phase 2)*
-- Charger un checkpoint `.pt` (PyTorch)
-- Rejouer la partie dans l'UI via seed + séquence de mouvements générée par le modèle
-- Lancement : `python src/main.py --seed 42 --replay logs/episode_xxx.jsonl`
+#### Phase 3 — Visualisation pygame ✅ version light implémentée (2026-05-29)
+Fichiers : `src/exploit.py`, `src/ui.py` (boutons `[▶ IA]` / `[↺ IA]`)
+
+**Mode exploitation IA dans l'UI :**
+- `[▶ IA]` : file picker → charge un checkpoint `.pt` → joue un épisode complet (epsilon=0, boucle jusqu'à victoire ou MAX_STEPS) → affiche le tracé cyan sur le terrain courant
+- `[↺ IA]` : rejoue le modèle déjà chargé sur le terrain affiché (utile après restart ou changement de seed)
+- Tracé cyan effacé automatiquement au chargement d'un nouveau terrain
+- Détection automatique d'architecture (FiLMDQNetwork / DQNetwork) via les clés du state_dict
+
+**Prochaine étape (visualisation avancée) :**
+- Charger plusieurs checkpoints d'une même run (ep500, ep1000…) et animer la progression de l'IA
+- Affichage multi-trails avec dégradé alpha par étape de curriculum
 
 **Replay stratifié ✅ implémenté + run effectué (2026-05-27)**
 `StratifiedReplayBuffer(capacity, n_seeds)` : un sous-buffer par seed, batch toujours équilibré.
@@ -307,22 +317,43 @@ L'architecture réelle de chaque run a été vérifiée via les poids des checkp
 - Analyse rétrospective des runs 2026-05-28 : win rate max vs final par architecture (voir tableau ci-dessus).
 - Décision : prochain run en **task-cond** (meilleur pic pool10 : 59%, pool6 très stable à 68% final, 2× plus rapide que FiLM).
 
+**Session du 2026-05-29 (suite) — Sélection des seeds pédagogiques**
+
+Analyse de 3 000 seeds (0–2999) via `analyze/search_seeds.py` : coût Dijkstra, détour rochers,
+cases eau, position bord. Sélection manuelle de 10 seeds répartis en 5 groupes de difficulté
+après inspection visuelle dans l'UI (champ de saisie de seed ajouté au HUD).
+
+**Pool retenu (`N_SEEDS_DIM=10`, inchangé) :**
+
+| Index | Seed | Groupe | Caractéristique principale |
+|-------|------|--------|---------------------------|
+| 0 | 1619 | Facile (coût 5–8) | chemin court |
+| 1 | 1240 | Facile (coût 5–8) | chemin court |
+| 2 | 113 | Rochers (coût 9–12) | détour rochers élevé |
+| 3 | 173 | Rochers (coût 9–12) | détour rochers élevé |
+| 4 | 57 | Mixte (coût 13–16) | eau et/ou rochers |
+| 5 | 61 | Mixte (coût 13–16) | eau et/ou rochers |
+| 6 | 87 | Complexe (coût 17–20) | eau sur chemin optimal |
+| 7 | 278 | Complexe (coût 17–20) | eau sur chemin optimal |
+| 8 | 88 | Difficile (coût 21+) | chemin long et tortueux |
+| 9 | 361 | Difficile (coût 21+) | chemin long et tortueux |
+
 **⏭️ Prochaine étape :**
 
-**Objectif : 100% win rate sur 100 essais.**
+**Objectif : curriculum progressif sur les 10 seeds pédagogiques.**
 
-Relancer en task-cond depuis le meilleur checkpoint pool3 (`1039`), avec 10 000 ep sur pool6 puis pool10 :
+Curriculum en 5 étapes (2 seeds par groupe), architecture task-cond :
 ```bash
 .venv\Scripts\python.exe src/curriculum.py `
-    --pool 0,1,2,3,4,5,6,7,8,9 `
-    --stages 6,10 `
-    --max-episodes-per-stage 10000 `
+    --pool 1619,1240,113,173,57,61,87,278,88,361 `
+    --stages 2,4,6,8,10 `
+    --max-episodes-per-stage 5000 `
     --win-rate-threshold 0.8 `
     --lr 3e-4,1e-4 `
-    --architecture taskcond `
-    --pretrained models/20260528_1039_pool3_ep5000_from_20260528_1037/final.pt
+    --architecture taskcond
 ```
-Durée estimée : ~4h. Pool6 atteignait 68% final en 5000 ep — 10 000 ep devrait lui permettre de franchir le seuil 80%.
+Durée estimée : ~2h30. Le curriculum part des seeds faciles (groupe 1) et ajoute progressivement
+la difficulté, ce qui devrait éviter le catastrophic forgetting observé sur des pools homogènes.
 
 ### Stratégie terrains (détail)
 | Option | Description | Quand |

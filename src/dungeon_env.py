@@ -39,10 +39,13 @@ REWARD_STEP = -0.01   # déplacement normal (herbe ou eau) sans victoire
 REWARD_BUMP = -0.05   # choc contre un mur ou un bord de grille
 
 
+MAX_STEPS: int = 100   # nombre maximum de pas par épisode (module-level alias)
+
+
 class DungeonEnv:
     """Interface Gym pour le jeu Dungeon (Phase 1 RL)."""
 
-    MAX_STEPS: int = 100
+    MAX_STEPS: int = MAX_STEPS
 
     def __init__(
         self,
