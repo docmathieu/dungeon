@@ -34,7 +34,7 @@ GRID_W = Grid.WIDTH  * CELL_STEP - SEP_PX   # 409 px
 GRID_H = Grid.HEIGHT * CELL_STEP - SEP_PX   # 409 px
 
 HUD_TOP_H = 80    # height of the top HUD strip
-HUD_BOT_H = 100   # height of the bottom HUD strip (2 rows of buttons)
+HUD_BOT_H = 110   # height of the bottom HUD strip (2 rows of buttons + stats)
 
 INPUT_ACTIVE_COL = ( 60,  60,  80)   # fond du champ de saisie actif
 INPUT_BORDER_COL = (100, 100, 200)   # bordure du champ actif
@@ -80,6 +80,8 @@ class GameUI:
 
         # Chemin optimal IA (rouge, affiché en fin d'épisode/animation)
         self._ai_optimal_path: list[tuple[int, int]] | None = None
+        # Statistiques des épisodes IA (wins, note moy) — remis à None à chaque reset terrain
+        self._ai_stats: dict | None = None
         self._anim_idx: int = -1            # index du trail actuellement visible
         self._anim_last_ms: int = 0
         self._loading_progress: float | None = None   # None=inactif, 0..1=chargement
@@ -106,6 +108,7 @@ class GameUI:
         self._anim_idx        = -1
         self._loading_progress = None
         self._ai_optimal_path = None
+        self._ai_stats        = None
 
     def _reset_with_seed(self, seed: int) -> None:
         state = GameState.create_solvable(seed=seed)
@@ -117,6 +120,7 @@ class GameUI:
         self._anim_idx        = -1
         self._loading_progress = None
         self._ai_optimal_path  = None
+        self._ai_stats         = None
 
     # ------------------------------------------------------------------
     def _draw(self) -> None:
@@ -334,18 +338,33 @@ class GameUI:
         self._label("IA restart", ai_restart_rect.x + 4, ai_restart_rect.y + 6, rst_col)
         self._ai_restart_rect = ai_restart_rect
 
-        # Barre de progression (chargement multi)
+        # ── Ligne 3 : trail info + statistiques IA ───────────────────────
+        row3_y = bot_y + 86
+
         if loading:
-            bar_y = bot_y + 88
+            # Barre de progression pendant le chargement
             bar_w = int(WIN_W * self._loading_progress)
-            pygame.draw.rect(self._screen, DARK, (0, bar_y, WIN_W, 8))
-            pygame.draw.rect(self._screen, CYAN, (0, bar_y, bar_w, 8))
-        elif self._ai_trails:
-            # Indicateur de progression de l'animation
-            n = len(self._ai_trails)
-            shown = self._anim_idx + 1
-            pct_text = f"Trail {shown}/{n}" if shown > 0 else f"0/{n} prêt"
-            self._label(pct_text, 350, row2_y + 6, GREY)
+            pygame.draw.rect(self._screen, DARK, (0, row3_y, WIN_W, 8))
+            pygame.draw.rect(self._screen, CYAN, (0, row3_y, bar_w, 8))
+
+        # Stats IA (affichées pendant ET après chargement)
+        parts: list[str] = []
+        if self._ai_trails:
+            n     = len(self._ai_trails)
+            shown = max(0, self._anim_idx + 1)
+            parts.append(f"Trail {shown}/{n}")
+        if self._ai_stats:
+            wins  = self._ai_stats["wins"]
+            total = self._ai_stats["total"]
+            parts.append(f"Victoires : {wins}/{total}")
+            if wins > 0:
+                note = self._ai_stats["note_moy"]
+                parts.append(f"Note moy : {note:.0f}")
+            else:
+                parts.append("Note moy : —")
+        if parts:
+            text_y = row3_y + (12 if loading else 2)
+            self._label("   |   ".join(parts), 4, text_y, GREY)
 
     # ------------------------------------------------------------------
     def _run_ai_simple(self) -> None:
@@ -361,10 +380,16 @@ class GameUI:
         if not path_str:
             return
         try:
-            from exploit import load_net, run_one_episode
-            self._ai_net          = load_net(Path(path_str))
-            self._ai_trail        = run_one_episode(self._ai_net, seed=self._current_seed)
+            from exploit import load_net, run_one_episode_info
+            self._ai_net = load_net(Path(path_str))
+            trail, won, score = run_one_episode_info(self._ai_net, seed=self._current_seed)
+            self._ai_trail        = trail
             self._ai_optimal_path = self._state.optimal_path   # même seed → même chemin
+            self._ai_stats = {
+                "wins":     1 if won else 0,
+                "note_moy": score if won else 0,
+                "total":    1,
+            }
         except Exception as exc:
             print(f"[IA simple] Erreur : {exc}")
 
@@ -394,7 +419,7 @@ class GameUI:
         self._loading_progress = 0.0
 
         def _load() -> None:
-            from exploit import scan_run_dir, load_net, run_one_episode
+            from exploit import scan_run_dir, load_net, run_one_episode_info
             try:
                 checkpoints = scan_run_dir(run_dir)
                 if not checkpoints:
@@ -410,9 +435,14 @@ class GameUI:
 
                 nets_cache: list[dict] = []
                 trails:     list[dict] = []
+                wins = 0
+                scores_sum = 0
                 for i, cp in enumerate(checkpoints):
-                    net   = load_net(cp["pt_path"])
-                    trail = run_one_episode(net, seed=seed)
+                    net               = load_net(cp["pt_path"])
+                    trail, won, score = run_one_episode_info(net, seed=seed)
+                    if won:
+                        wins      += 1
+                        scores_sum += score
                     s     = cp["stage_idx"]
                     stage_seen[s] = stage_seen.get(s, 0) + 1
                     k     = stage_seen[s]
@@ -423,6 +453,12 @@ class GameUI:
                     trails.append({"trail": trail, "color": cp["color"],
                                    "alpha": alpha, "stage_idx": s})
                     self._loading_progress = (i + 1) / n
+                    # mise à jour incrémentale pendant le chargement
+                    self._ai_stats = {
+                        "wins":     wins,
+                        "note_moy": scores_sum / wins if wins > 0 else 0,
+                        "total":    i + 1,
+                    }
 
                 self._ai_nets_cache = nets_cache   # persistant — réutilisé sans disque
                 self._ai_trails     = trails
@@ -445,13 +481,23 @@ class GameUI:
         self._ai_optimal_path = self._state.optimal_path   # capturé avant le thread
 
         def _rerun() -> None:
-            from exploit import run_one_episode
+            from exploit import run_one_episode_info
             try:
                 trails: list[dict] = []
+                wins = 0
+                scores_sum = 0
                 for entry in self._ai_nets_cache:
-                    trail = run_one_episode(entry["net"], seed=seed)
+                    trail, won, score = run_one_episode_info(entry["net"], seed=seed)
+                    if won:
+                        wins      += 1
+                        scores_sum += score
                     trails.append({"trail": trail, "color": entry["color"],
                                    "alpha": entry["alpha"], "stage_idx": entry["stage_idx"]})
+                self._ai_stats = {
+                    "wins":     wins,
+                    "note_moy": scores_sum / wins if wins > 0 else 0,
+                    "total":    len(self._ai_nets_cache),
+                }
                 self._ai_trails    = trails
                 self._anim_idx     = -1
                 self._anim_last_ms = pygame.time.get_ticks()
@@ -477,8 +523,14 @@ class GameUI:
             self._load_multi(self._ai_run_dir, self._current_seed)
         elif self._ai_net is not None:
             try:
-                from exploit import run_one_episode
-                self._ai_trail = run_one_episode(self._ai_net, seed=self._current_seed)
+                from exploit import run_one_episode_info
+                trail, won, score = run_one_episode_info(self._ai_net, seed=self._current_seed)
+                self._ai_trail = trail
+                self._ai_stats = {
+                    "wins":     1 if won else 0,
+                    "note_moy": score if won else 0,
+                    "total":    1,
+                }
             except Exception as exc:
                 print(f"[IA restart] Erreur : {exc}")
 
