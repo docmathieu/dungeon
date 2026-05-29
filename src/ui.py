@@ -77,6 +77,9 @@ class GameUI:
         self._ai_trails: list[dict] = []      # [{trail, color, alpha, stage_idx}]
         self._ai_nets_cache: list[dict] = []  # [{net, color, alpha, stage_idx}] — persistant entre resets
         self._ai_run_dir: Path | None = None  # dossier *_run/ chargé (conservé après reset)
+
+        # Chemin optimal IA (rouge, affiché en fin d'épisode/animation)
+        self._ai_optimal_path: list[tuple[int, int]] | None = None
         self._anim_idx: int = -1            # index du trail actuellement visible
         self._anim_last_ms: int = 0
         self._loading_progress: float | None = None   # None=inactif, 0..1=chargement
@@ -98,20 +101,22 @@ class GameUI:
         self._state = GameState.create_solvable(seed=seed)
         self._grid = self._state.grid
         self._current_seed = seed
-        self._ai_trail  = None
-        self._ai_trails = []
-        self._anim_idx  = -1
+        self._ai_trail        = None
+        self._ai_trails       = []
+        self._anim_idx        = -1
         self._loading_progress = None
+        self._ai_optimal_path = None
 
     def _reset_with_seed(self, seed: int) -> None:
         state = GameState.create_solvable(seed=seed)
         self._state = state
         self._grid  = state.grid
         self._current_seed = seed
-        self._ai_trail  = None
-        self._ai_trails = []
-        self._anim_idx  = -1
+        self._ai_trail        = None
+        self._ai_trails       = []
+        self._anim_idx        = -1
         self._loading_progress = None
+        self._ai_optimal_path  = None
 
     # ------------------------------------------------------------------
     def _draw(self) -> None:
@@ -119,8 +124,9 @@ class GameUI:
         self._draw_grid()
         self._draw_trail()
         self._draw_optimal_trail()
-        self._draw_ai_trail()     # mode simple
-        self._draw_ai_trails()    # mode multi (animation)
+        self._draw_ai_trail()         # mode simple
+        self._draw_ai_trails()        # mode multi (animation)
+        self._draw_ai_optimal_path()  # chemin optimal rouge (fin d'épisode IA)
         self._draw_character()
         self._draw_exit()
         self._draw_hud_top()
@@ -146,6 +152,35 @@ class GameUI:
         for i in range(len(path) - 1):
             ax, ay = path[i]
             bx, by = path[i + 1]
+            ra = _tile_rect(ax, ay)
+            rb = _tile_rect(bx, by)
+            pygame.draw.line(
+                self._screen, RED,
+                (ra.centerx + o, ra.centery + o),
+                (rb.centerx + o, rb.centery + o),
+                2,
+            )
+
+    def _draw_ai_optimal_path(self) -> None:
+        """Dessine le chemin optimal (rouge) en fin d'épisode IA.
+
+        - Mode simple  : affiché dès que le trail est chargé.
+        - Mode multi   : affiché uniquement quand l'animation est terminée.
+        """
+        if not self._ai_optimal_path or len(self._ai_optimal_path) < 2:
+            return
+        if self._ai_trail is not None:
+            show = True   # simple : toujours
+        elif self._ai_trails and self._anim_idx >= len(self._ai_trails) - 1:
+            show = True   # multi : animation complète
+        else:
+            show = False
+        if not show:
+            return
+        o = OPTIMAL_TRAIL_OFFSET
+        for i in range(len(self._ai_optimal_path) - 1):
+            ax, ay = self._ai_optimal_path[i]
+            bx, by = self._ai_optimal_path[i + 1]
             ra = _tile_rect(ax, ay)
             rb = _tile_rect(bx, by)
             pygame.draw.line(
@@ -327,8 +362,9 @@ class GameUI:
             return
         try:
             from exploit import load_net, run_one_episode
-            self._ai_net   = load_net(Path(path_str))
-            self._ai_trail = run_one_episode(self._ai_net, seed=self._current_seed)
+            self._ai_net          = load_net(Path(path_str))
+            self._ai_trail        = run_one_episode(self._ai_net, seed=self._current_seed)
+            self._ai_optimal_path = self._state.optimal_path   # même seed → même chemin
         except Exception as exc:
             print(f"[IA simple] Erreur : {exc}")
 
@@ -345,7 +381,8 @@ class GameUI:
         root.destroy()
         if not run_dir_str:
             return
-        self._ai_run_dir = Path(run_dir_str)
+        self._ai_run_dir      = Path(run_dir_str)
+        self._ai_optimal_path = self._state.optimal_path   # capturé avant le thread
         self._load_multi(self._ai_run_dir, self._current_seed)
 
     def _load_multi(self, run_dir: Path, seed: int | None) -> None:
@@ -403,8 +440,9 @@ class GameUI:
         """Rejoue tous les modèles en cache sur un nouveau seed, sans relire le disque."""
         if not self._ai_nets_cache or self._loading_progress is not None:
             return
-        self._ai_trails = []
-        self._anim_idx  = -1
+        self._ai_trails       = []
+        self._anim_idx        = -1
+        self._ai_optimal_path = self._state.optimal_path   # capturé avant le thread
 
         def _rerun() -> None:
             from exploit import run_one_episode

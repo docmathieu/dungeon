@@ -316,3 +316,29 @@ class TestCurrentSeed:
         for _ in range(20):
             env.reset()
             assert env.current_seed == pool[env.current_seed_idx]
+
+
+# ===========================================================================
+# optimal_path — disponibilité pour la visualisation IA
+# ===========================================================================
+
+class TestOptimalPath:
+    def test_optimal_path_set_after_reset(self):
+        """L'optimal_path est disponible dès la création (utilisé par l'UI IA)."""
+        env = DungeonEnv(seed=42)
+        env.reset()
+        assert env._state.optimal_path is not None
+
+    def test_optimal_path_is_list_of_tuples(self):
+        env = DungeonEnv(seed=42)
+        env.reset()
+        for pos in env._state.optimal_path:
+            assert isinstance(pos, tuple) and len(pos) == 2
+
+    def test_same_seed_gives_same_optimal_path(self):
+        """Deux états avec le même seed ont le même chemin optimal.
+        Valide que l'UI peut utiliser self._state.optimal_path pour les épisodes IA."""
+        env = DungeonEnv(seed=42)
+        env.reset()
+        state2 = GameState.create_solvable(seed=42)
+        assert env._state.optimal_path == state2.optimal_path

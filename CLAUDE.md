@@ -15,7 +15,7 @@ Ce POC est la première étape vers un système d'**apprentissage par renforceme
 - **Python** : 3.12 (LTS-équivalent, supporté jusqu'en 2028)
 - **Graphique** : pygame (SDL2)
 - **RL (à venir)** : PyTorch + Stable-Baselines3
-- **Tests** : pytest (230 tests, 0 échec)
+- **Tests** : pytest (233 tests, 0 échec)
 - **Exécutable** : PyInstaller
 
 ## Structure du projet
@@ -256,8 +256,8 @@ python tools/migrate_models.py             # migration réelle
 ```
 
 **Boutons IA dans l'UI (ligne 2 du HUD bas) :**
-- `[IA simple model]` : file picker `.pt` → joue un épisode complet (epsilon=0) → tracé cyan
-- `[IA multi model]` : directory picker `*_run/` → charge TOUS les checkpoints en thread de fond → animation 200ms/trail avec barre de progression
+- `[IA simple model]` : file picker `.pt` → joue un épisode complet (epsilon=0) → tracé orange + chemin optimal rouge
+- `[IA multi model]` : directory picker `*_run/` → charge TOUS les checkpoints en thread de fond → animation 200ms/trail avec barre de progression → chemin optimal rouge en fin d'animation
 - `[IA restart]` : relance l'animation (trails présents) ou recalcule les trails sans relire le disque (nets en cache `_ai_nets_cache`), ou reload complet si cache vide
 
 **Palette de couleurs (5 stages) :**
