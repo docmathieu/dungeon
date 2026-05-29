@@ -356,12 +356,9 @@ class GameUI:
         if self._ai_stats:
             wins  = self._ai_stats["wins"]
             total = self._ai_stats["total"]
+            note  = self._ai_stats["note_moy"]
             parts.append(f"Victoires : {wins}/{total}")
-            if wins > 0:
-                note = self._ai_stats["note_moy"]
-                parts.append(f"Note moy : {note:.0f}")
-            else:
-                parts.append("Note moy : —")
+            parts.append(f"Note moy : {note:.0f}")
         if parts:
             text_y = row3_y + (12 if loading else 2)
             self._label("   |   ".join(parts), 4, text_y, GREY)
@@ -387,7 +384,7 @@ class GameUI:
             self._ai_optimal_path = self._state.optimal_path   # même seed → même chemin
             self._ai_stats = {
                 "wins":     1 if won else 0,
-                "note_moy": score if won else 0,
+                "note_moy": float(score),   # score=0 si échec → inclus dans la moyenne
                 "total":    1,
             }
         except Exception as exc:
@@ -456,7 +453,7 @@ class GameUI:
                     # mise à jour incrémentale pendant le chargement
                     self._ai_stats = {
                         "wins":     wins,
-                        "note_moy": scores_sum / wins if wins > 0 else 0,
+                        "note_moy": scores_sum / (i + 1),   # échecs comptent comme 0
                         "total":    i + 1,
                     }
 
@@ -493,10 +490,11 @@ class GameUI:
                         scores_sum += score
                     trails.append({"trail": trail, "color": entry["color"],
                                    "alpha": entry["alpha"], "stage_idx": entry["stage_idx"]})
+                n_total = len(self._ai_nets_cache)
                 self._ai_stats = {
                     "wins":     wins,
-                    "note_moy": scores_sum / wins if wins > 0 else 0,
-                    "total":    len(self._ai_nets_cache),
+                    "note_moy": scores_sum / n_total if n_total > 0 else 0.0,
+                    "total":    n_total,
                 }
                 self._ai_trails    = trails
                 self._anim_idx     = -1
