@@ -404,3 +404,37 @@ class TestCurrentSeedIdx:
         seen = {env.reset() and env.current_seed_idx for _ in range(50)}
         assert len(seen) > 1   # au moins 2 seeds différents tirés
 
+
+# ===========================================================================
+# current_seed
+# ===========================================================================
+
+class TestCurrentSeed:
+    def test_fixed_seed_returns_seed_value(self):
+        """Avec seed fixe, current_seed retourne la valeur du seed."""
+        env = DungeonEnv(seed=42)
+        env.reset()
+        assert env.current_seed == 42
+
+    def test_pool_returns_value_not_index(self):
+        """Avec seed_pool, current_seed retourne la valeur du seed, pas son index."""
+        pool = [10, 20, 30]
+        env  = DungeonEnv(seed_pool=pool)
+        for _ in range(20):
+            env.reset()
+            assert env.current_seed in pool
+
+    def test_random_mode_returns_none(self):
+        """Sans seed ni pool, current_seed vaut None."""
+        env = DungeonEnv(seed=None)
+        env.reset()
+        assert env.current_seed is None
+
+    def test_consistent_with_seed_idx(self):
+        """current_seed == seed_pool[current_seed_idx]."""
+        pool = [5, 15, 25, 35]
+        env  = DungeonEnv(seed_pool=pool)
+        for _ in range(20):
+            env.reset()
+            assert env.current_seed == pool[env.current_seed_idx]
+

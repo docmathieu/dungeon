@@ -115,6 +115,17 @@ class DungeonEnv:
         """Index dans seed_pool du seed utilisé pour l'épisode courant (0 si pas de pool)."""
         return self._current_seed_idx
 
+    @property
+    def current_seed(self) -> int | None:
+        """Valeur du seed utilisé pour l'épisode courant.
+
+        Retourne la valeur effective du seed (ex. 42), pas son index dans le pool.
+        None si le mode est full-random (seed=None et pas de pool).
+        """
+        if self._seed_pool is not None:
+            return self._seed_pool[self._current_seed_idx]
+        return self._seed
+
     def _pick_seed(self) -> int | None:
         """Choisit le seed pour le prochain épisode et met à jour current_seed_idx."""
         if self._seed_pool is not None:

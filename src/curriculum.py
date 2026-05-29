@@ -26,11 +26,13 @@ import torch
 sys.path.insert(0, os.path.dirname(__file__))
 
 from train import (
+    ARCHITECTURES,
     DQNAgent,
     ReplayBuffer,
     StratifiedReplayBuffer,
     DungeonEnv,
     _log_episode,
+    _log_meta,
     _now,
     _pretrained_label,
     _run_episode,
@@ -83,6 +85,8 @@ def _train_stage(
     log_path:            Path,
     model_dir:           Path,
     verbose:             bool,
+    arch:                str         = "film",
+    stage_meta:          dict | None = None,
 ) -> Path:
     """Entraîne un agent sur un pool donné jusqu'à maîtrise ou max_episodes.
 
@@ -93,7 +97,7 @@ def _train_stage(
 
     eps_decay = (EPSILON_END / EPSILON_START) ** (2.0 / max_episodes)
     env       = DungeonEnv(seed_pool=stage_pool, max_steps=MAX_STEPS)
-    agent     = DQNAgent(lr=lr, eps_decay=eps_decay)
+    agent     = DQNAgent(lr=lr, eps_decay=eps_decay, arch=arch)
     buf       = (StratifiedReplayBuffer(BUFFER_SIZE, n_seeds=len(stage_pool))
                  if len(stage_pool) > 1 else ReplayBuffer(BUFFER_SIZE))
     t0        = time.time()
@@ -105,15 +109,20 @@ def _train_stage(
     scores:   list[int] = []
     mastered: bool      = False
 
+    seed      = stage_pool[0] if len(stage_pool) == 1 else None
+    seed_pool = None if len(stage_pool) == 1 else stage_pool
+
     with open(log_path, "w") as log_file:
+        _log_meta(log_file, agent, max_episodes, lr, seed, seed_pool,
+                  pretrained, extra=stage_meta)
         for ep in range(1, max_episodes + 1):
-            moves, ep_reward, info = _run_episode(env, agent, buf)
+            moves, ep_reward, info, ep_seed = _run_episode(env, agent, buf)
             agent.decay_epsilon()
 
             if ep % TARGET_UPDATE_FREQ == 0:
                 agent.sync_target()
 
-            _log_episode(log_file, ep, info, moves, agent, ep_reward)
+            _log_episode(log_file, ep, info, moves, agent, ep_reward, seed=ep_seed)
             scores.append(info["score"])
 
             if ep % CHECKPOINT_FREQ == 0:
@@ -142,6 +151,8 @@ def run_curriculum(
     max_episodes_per_stage: int              = 2000,
     win_rate_threshold:     float            = 0.8,
     lr:                     list[float] | None = None,
+    arch:                   str              = "film",
+    pretrained:             Path | None      = None,
     log_dir:                Path             = Path("logs"),
     model_dir:              Path             = Path("models"),
     verbose:                bool             = True,
@@ -150,12 +161,12 @@ def run_curriculum(
 
     lr : learning rate(s) par étape. Si la liste est plus courte que stages,
          la dernière valeur est répétée. Défaut : [LEARNING_RATE] pour toutes.
+    pretrained : checkpoint .pt de départ pour la première étape (optionnel).
     """
+    import sys
     if lr is None:
         lr = [LEARNING_RATE]
     lrs = _pad_lr(lr, len(stages))
-
-    pretrained: Path | None = None
 
     for stage_idx, n_seeds in enumerate(stages):
         stage_pool = pool[:n_seeds]
@@ -173,6 +184,16 @@ def run_curriculum(
             print(f"\n=== Etape {stage_idx + 1}/{len(stages)} -- {label}{suffix}"
                   f"  lr={lrs[stage_idx]:.0e} ===")
 
+        stage_meta = {
+            "curriculum_command":    " ".join(sys.argv),
+            "stage":                 stage_idx + 1,
+            "stage_total":           len(stages),
+            "full_pool":             pool,
+            "win_rate_threshold":    win_rate_threshold,
+            "max_episodes_per_stage": max_episodes_per_stage,
+            "all_lrs":               lrs,
+        }
+
         pretrained = _train_stage(
             stage_pool         = stage_pool,
             max_episodes       = max_episodes_per_stage,
@@ -182,6 +203,8 @@ def run_curriculum(
             log_path           = log_dir  / f"{run}.jsonl",
             model_dir          = model_dir / run,
             verbose            = verbose,
+            arch               = arch,
+            stage_meta         = stage_meta,
         )
 
     return pretrained
@@ -203,6 +226,11 @@ def _parse_args() -> argparse.Namespace:
                    help="Taux de victoire cible pour progresser (défaut : 0.8)")
     p.add_argument("--lr",                     type=str,   default=str(LEARNING_RATE),
                    help=f"Learning rate(s) par etape, ex : 3e-4,1e-4 (defaut : {LEARNING_RATE})")
+    p.add_argument("--pretrained",             type=str,   default=None,
+                   help="Checkpoint .pt de depart (optionnel)")
+    p.add_argument("--architecture",           type=str,   default="film",
+                   choices=list(ARCHITECTURES),
+                   help="Architecture du réseau (défaut : film)")
     return p.parse_args()
 
 
@@ -217,5 +245,7 @@ if __name__ == "__main__":
         max_episodes_per_stage = args.max_episodes_per_stage,
         win_rate_threshold     = args.win_rate_threshold,
         lr                     = lrs,
+        arch                   = args.architecture,
+        pretrained             = Path(args.pretrained) if args.pretrained else None,
     )
     print(f"\nCurriculum termine. Modele final : {final}")

@@ -195,3 +195,39 @@ Paramètres CLI :
 ### Agent : replay-model *(Phase 3)*
 Charge un checkpoint `.pt` et rejoue la partie dans pygame via seed + séquence générée par le modèle.
 Lancement prévu : `python src/main.py --seed 42 --replay logs/episode_xxx.jsonl`
+
+---
+
+## Scripts d'analyse (`analyze/`)
+
+Scripts utilitaires pour comprendre les seeds et le comportement RL.
+À lancer manuellement depuis la racine du projet — pas de skill associé.
+
+### `analyze/search_seeds.py`
+**Objectif** : trouver 20 seeds pédagogiquement intéressants pour le curriculum RL.
+
+**Contexte** : les seeds arbitraires (0..9) présentent des problèmes identifiés —
+doublons (seeds 3 et 4 identiques), déséquilibre de difficulté (coût 5 à 20),
+signal de gradient dominé par les seeds faciles (seed=5, UP×5).
+
+**Métriques calculées** :
+- `optimal_cost` : coût Dijkstra (herbe=1, eau=2)
+- `optimal_moves` : nombre de moves sur le chemin optimal
+- `rock_detour` : optimal_moves − manhattan (>0 = rochers forcent un contournement)
+- `water_steps` : cases EAU traversées sur le chemin optimal
+- `near_border` : personnage ou sortie sur le bord de la grille
+
+**Groupes cibles** (4 seeds chacun) :
+
+| Groupe | Coût | Priorité de sélection |
+|--------|------|-----------------------|
+| Facile | 5–8 | rock_detour=0, chemin court |
+| Rochers | 9–12 | rock_detour > 0 |
+| Mixte | 13–16 | eau et/ou rochers |
+| Complexe | 17–20 | water_steps > 0 |
+| Difficile | 21+ | chemin long |
+
+**Utilisation** :
+```bash
+.venv\Scripts\python.exe analyze/search_seeds.py
+```

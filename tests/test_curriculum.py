@@ -1,11 +1,13 @@
 """Tests unitaires pour curriculum.py (_win_rate, _train_stage, run_curriculum)."""
 
+import json
 from pathlib import Path
 from unittest.mock import patch
 
 import pytest
 
 from curriculum import (
+    ARCHITECTURES,
     WIN_RATE_WINDOW,
     _pad_lr,
     _train_stage,
@@ -124,7 +126,8 @@ class TestTrainStage:
             model_dir          = tmp_path / "models",
             verbose            = False,
         )
-        lines = (tmp_path / "test.jsonl").read_text().strip().splitlines()
+        lines = [json.loads(l) for l in (tmp_path / "test.jsonl").read_text().splitlines()
+                 if json.loads(l).get("type") != "meta"]
         assert len(lines) == 5
 
     def test_stops_early_when_mastery_reached(self, tmp_path):
@@ -140,7 +143,8 @@ class TestTrainStage:
                 model_dir          = tmp_path / "models",
                 verbose            = False,
             )
-        lines = (tmp_path / "test.jsonl").read_text().strip().splitlines()
+        lines = [json.loads(l) for l in (tmp_path / "test.jsonl").read_text().splitlines()
+                 if json.loads(l).get("type") != "meta"]
         assert len(lines) == WIN_RATE_WINDOW
 
     def test_pretrained_weights_loaded(self, tmp_path):
@@ -314,3 +318,86 @@ class TestRunCurriculum:
                 verbose                = False,
             )
         assert lrs_seen == pytest.approx([5e-4, 5e-4])
+
+
+# ===========================================================================
+# Architecture — _train_stage et run_curriculum
+# ===========================================================================
+
+class TestArchitecture:
+    def test_train_stage_default_arch_is_film(self, tmp_path):
+        import torch
+        from model import FiLMDQNetwork
+        _train_stage(
+            stage_pool         = [42],
+            max_episodes       = 2,
+            win_rate_threshold = 0.8,
+            lr                 = 1e-3,
+            pretrained         = None,
+            log_path           = tmp_path / "test.jsonl",
+            model_dir          = tmp_path / "models",
+            verbose            = False,
+        )
+        from model import FiLMDQNetwork
+        net = FiLMDQNetwork()
+        net.load_state_dict(torch.load(tmp_path / "models" / "final.pt",
+                                       weights_only=True))
+
+    def test_train_stage_taskcond_arch(self, tmp_path):
+        import torch
+        from model import DQNetwork
+        _train_stage(
+            stage_pool         = [42],
+            max_episodes       = 2,
+            win_rate_threshold = 0.8,
+            lr                 = 1e-3,
+            pretrained         = None,
+            log_path           = tmp_path / "test.jsonl",
+            model_dir          = tmp_path / "models",
+            verbose            = False,
+            arch               = "taskcond",
+        )
+        net = DQNetwork()
+        net.load_state_dict(torch.load(tmp_path / "models" / "final.pt",
+                                       weights_only=True))
+
+    def test_train_stage_meta_logs_architecture(self, tmp_path):
+        _train_stage(
+            stage_pool         = [42],
+            max_episodes       = 2,
+            win_rate_threshold = 0.8,
+            lr                 = 1e-3,
+            pretrained         = None,
+            log_path           = tmp_path / "test.jsonl",
+            model_dir          = tmp_path / "models",
+            verbose            = False,
+            arch               = "taskcond",
+        )
+        meta = json.loads((tmp_path / "test.jsonl").read_text().splitlines()[0])
+        assert meta["architecture"] == "DQNetwork"
+
+    def test_run_curriculum_arch_propagated(self, tmp_path):
+        """L'arch passé à run_curriculum doit atteindre _train_stage."""
+        arch_seen = []
+
+        def spy(*args, **kwargs):
+            arch_seen.append(kwargs.get("arch", "film"))
+            return _train_stage(*args, **kwargs)
+
+        with patch("curriculum._train_stage", side_effect=spy):
+            run_curriculum(
+                pool                   = [42, 0],
+                stages                 = [1, 2],
+                max_episodes_per_stage = 3,
+                win_rate_threshold     = 0.8,
+                lr                     = [1e-3],
+                arch                   = "taskcond",
+                log_dir                = tmp_path / "logs",
+                model_dir              = tmp_path / "models",
+                verbose                = False,
+            )
+        assert all(a == "taskcond" for a in arch_seen)
+
+    def test_architectures_dict_exported(self):
+        assert "film" in ARCHITECTURES
+        assert "taskcond" in ARCHITECTURES

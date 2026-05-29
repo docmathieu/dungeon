@@ -183,6 +183,9 @@ class StratifiedReplayBuffer:
 # Agent DQN
 # ---------------------------------------------------------------------------
 
+ARCHITECTURES = {"film": FiLMDQNetwork, "taskcond": DQNetwork}
+
+
 class DQNAgent:
     """Agent DQN : epsilon-greedy + réseau cible + apprentissage par batch."""
 
@@ -193,14 +196,18 @@ class DQNAgent:
         epsilon:    float = EPSILON_START,
         eps_end:    float = EPSILON_END,
         eps_decay:  float = EPSILON_DECAY,
+        arch:       str   = "film",
     ):
+        if arch not in ARCHITECTURES:
+            raise ValueError(f"arch doit être parmi {list(ARCHITECTURES)} — reçu : {arch!r}")
         self.gamma      = gamma
         self.epsilon    = epsilon
         self._eps_end   = eps_end
         self._eps_decay = eps_decay
 
-        self.q_net      = FiLMDQNetwork()
-        self.target_net = FiLMDQNetwork()
+        net_cls         = ARCHITECTURES[arch]
+        self.q_net      = net_cls()
+        self.target_net = net_cls()
         self.target_net.load_state_dict(self.q_net.state_dict())
         self.target_net.eval()
 
@@ -310,10 +317,11 @@ def _run_episode(
     env:   "DungeonEnv",
     agent: DQNAgent,
     buf:   "ReplayBuffer | StratifiedReplayBuffer",
-) -> tuple[list[str], float, dict]:
-    """Joue un épisode complet. Retourne (moves, ep_reward, info)."""
+) -> tuple[list[str], float, dict, "int | None"]:
+    """Joue un épisode complet. Retourne (moves, ep_reward, info, seed)."""
     obs       = env.reset()
     seed_idx  = env.current_seed_idx   # index du seed choisi pour cet épisode (constant)
+    ep_seed   = env.current_seed       # valeur effective du seed (ex. 42)
     state     = encode_obs(obs, seed_idx=seed_idx)
     done      = False
     moves:    list[str] = []
@@ -332,20 +340,59 @@ def _run_episode(
         ep_reward += reward
         moves.append(action)
 
-    return moves, ep_reward, info
+    return moves, ep_reward, info, ep_seed
+
+
+def _log_meta(
+    log_file,
+    agent:      DQNAgent,
+    episodes:   int,
+    lr:         float,
+    seed:       "int | None",
+    seed_pool:  "list[int] | None",
+    pretrained: "Path | None",
+    extra:      "dict | None" = None,
+) -> None:
+    """Écrit la ligne de métadonnées (type='meta') en tête du fichier de log."""
+    import sys
+    entry: dict = {
+        "type":         "meta",
+        "command":      " ".join(sys.argv),
+        "architecture": type(agent.q_net).__name__,
+        "hyperparams": {
+            "episodes":         episodes,
+            "lr":               lr,
+            "gamma":            agent.gamma,
+            "epsilon_start":    agent.epsilon,
+            "epsilon_end":      agent._eps_end,
+            "eps_decay":        round(agent._eps_decay, 6),
+            "buffer_size":      BUFFER_SIZE,
+            "batch_size":       BATCH_SIZE,
+            "target_update":    TARGET_UPDATE_FREQ,
+            "max_steps":        MAX_STEPS,
+            "seed":             seed,
+            "seed_pool":        seed_pool,
+            "pretrained":       str(pretrained) if pretrained else None,
+        },
+    }
+    if extra:
+        entry.update(extra)
+    log_file.write(json.dumps(entry) + "\n")
 
 
 def _log_episode(
     log_file,
-    ep:       int,
-    info:     dict,
-    moves:    list[str],
-    agent:    DQNAgent,
+    ep:        int,
+    info:      dict,
+    moves:     list[str],
+    agent:     DQNAgent,
     ep_reward: float,
+    seed:      "int | None" = None,
 ) -> None:
     """Écrit une ligne JSON dans le fichier de log."""
     entry = {
         "episode": ep,
+        "seed":    seed,
         "score":   info["score"],
         "moves":   moves,
         "epsilon": round(agent.epsilon, 4),
@@ -386,6 +433,7 @@ def train(
     seed_pool:  list[int] | None = None,
     lr:         float            = LEARNING_RATE,
     pretrained: Path | None      = None,
+    arch:       str              = "film",
     log_path:   Path             = Path("logs/train.jsonl"),
     model_dir:  Path             = Path("models"),
     verbose:    bool             = True,
@@ -399,7 +447,7 @@ def train(
     eps_decay = (EPSILON_END / EPSILON_START) ** (2.0 / episodes)
 
     env   = DungeonEnv(seed=seed, seed_pool=seed_pool, max_steps=MAX_STEPS)
-    agent = DQNAgent(lr=lr, eps_decay=eps_decay)
+    agent = DQNAgent(lr=lr, eps_decay=eps_decay, arch=arch)
 
     if pretrained is not None:
         agent.q_net.load_state_dict(torch.load(pretrained, weights_only=True))
@@ -408,14 +456,15 @@ def train(
     t0    = time.time()
 
     with open(log_path, "w") as log_file:
+        _log_meta(log_file, agent, episodes, lr, seed, seed_pool, pretrained)
         for ep in range(1, episodes + 1):
-            moves, ep_reward, info = _run_episode(env, agent, buf)
+            moves, ep_reward, info, ep_seed = _run_episode(env, agent, buf)
             agent.decay_epsilon()
 
             if ep % TARGET_UPDATE_FREQ == 0:
                 agent.sync_target()
 
-            _log_episode(log_file, ep, info, moves, agent, ep_reward)
+            _log_episode(log_file, ep, info, moves, agent, ep_reward, seed=ep_seed)
 
             if ep % CHECKPOINT_FREQ == 0:
                 _save_checkpoint(agent, model_dir, ep, episodes, info["score"], t0, verbose)
@@ -438,8 +487,11 @@ def _parse_args() -> argparse.Namespace:
                    help="Pool de seeds, ex : 0,1,2,3")
     p.add_argument("--lr",         type=float, default=LEARNING_RATE,
                    help=f"Learning rate (défaut : {LEARNING_RATE})")
-    p.add_argument("--pretrained", type=Path,  default=None,
+    p.add_argument("--pretrained",   type=Path,  default=None,
                    help="Checkpoint .pt à utiliser comme point de départ")
+    p.add_argument("--architecture", type=str,  default="film",
+                   choices=list(ARCHITECTURES),
+                   help="Architecture du réseau (défaut : film)")
     return p.parse_args()
 
 
@@ -454,6 +506,7 @@ if __name__ == "__main__":
         seed_pool  = pool,
         lr         = args.lr,
         pretrained = args.pretrained,
+        arch       = args.architecture,
         log_path   = Path("logs") / f"{run}.jsonl",
         model_dir  = Path("models") / run,
     )

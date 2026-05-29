@@ -133,7 +133,7 @@ python src/train.py --episodes 3000 --seed 42
 - `DQNetwork` MLP : 304 → 256 → 128 → 64 → 4 sorties (Q-values)
 - `DQNAgent` : epsilon-greedy (ε 1.0→0.05), réseau cible, replay buffer 10 000
 - Reward shaping : `REWARD_STEP=-0.01`, `REWARD_BUMP=-0.05`
-- Logs JSON dans `logs/yyyymmdd_hhmm_{label}_ep{N}[_from_{timestamp}].jsonl` : `{"episode", "score", "moves", "epsilon", "reward"}`
+- Logs JSON dans `logs/yyyymmdd_hhmm_{label}_ep{N}[_from_{timestamp}].jsonl` : première ligne `{"type":"meta", "command", "architecture", "hyperparams"}`, puis une ligne `{"episode", "score", "moves", "epsilon", "reward"}` par épisode
 - Checkpoints dans `models/yyyymmdd_hhmm_{label}_ep{N}[_from_{timestamp}]/ep<N>.pt` + `final.pt`
 - `{label}` = `seed42` / `pool10` / `random` selon le mode de seed
 - `_from_{timestamp}` présent uniquement si `--pretrained` est utilisé
@@ -198,6 +198,8 @@ python src/curriculum.py --pool 0,1,2,3,4,5,6,7,8,9 \
 - Fallback : `--max-episodes-per-stage` si le seuil n'est jamais atteint
 - Transfer learning automatique entre étapes via `_from_` dans le nom des fichiers
 - `--lr` accepte une liste : `3e-4,1e-4` → lr=3e-4 stage 1, lr=1e-4 stages suivants (dernière valeur répétée)
+- `--pretrained` : checkpoint `.pt` de départ (optionnel) — permet de repartir d'un run existant sans relancer depuis seed0
+- `--architecture {film,taskcond}` : choix du réseau (défaut : `film`) — disponible aussi dans `train.py`
 
 **Résultats curriculum (2026-05-27) :**
 | Stage | Pool | Episodes | Win rate max | Win rate final | Notes |
@@ -260,7 +262,7 @@ La racine du problème n'est pas le déséquilibre du buffer mais l'architecture
 - **FiLM conditioning** : `FiLMLayer` + `FiLMDQNetwork` dans `model.py`. Chaque couche cachée modulée par `gamma(seed)*x + beta(seed)`. `DQNAgent` utilise `FiLMDQNetwork` par défaut.
 - **310 tests, 0 échec.**
 
-**Tableau comparatif complet (stages 1→3→6→10, 5000 ep/stage sauf mention) :**
+**Tableau comparatif complet (stages 1→3→6→10, 5000 ep/stage, win rate = final 100 épisodes) :**
 
 | Run | Architecture | lr | pool3 | pool6 | pool10 |
 |-----|--------------|----|-------|-------|--------|
@@ -270,12 +272,25 @@ La racine du problème n'est pas le déséquilibre du buffer mais l'architecture
 | D | Task-cond input (stages 1,6,10) | 3e-4,1e-4 | — | 17% | 4% |
 | **E** | **FiLM** | **3e-4,1e-4** | **1%** | **51%** | **16%** |
 
-**Enseignements clés :**
-- Le task-conditioning en entrée seul ne suffit pas : les couches cachées partagées génèrent encore des gradients conflictuels.
-- FiLM atteint **16% sur pool10** (meilleur résultat tous runs confondus), mais est 2× plus lent.
+**Analyse complémentaire (2026-05-29) — win rate max ET final par chaîne complète :**
+
+L'architecture réelle de chaque run a été vérifiée via les poids des checkpoints (INPUT_DIM et présence de couches FiLM).
+
+| Architecture | Run | pool6 max | pool6 final | pool10 max | pool10 final |
+|-------------|-----|-----------|-------------|-----------|--------------|
+| MLP | 27/1534 (2000ep) | 23% | 13% | 24% | 21% |
+| MLP | 28/0835 | 71% | 55% | 33% | 5% |
+| **Task-cond** | **28/1039** | **69%** | **68%** | **59%** | 7% |
+| Task-cond | 28/1411 | 44% | 19% | 51% | 1% |
+| FiLM | 28/1620 | 55% | 51% | 34% | **16%** |
+
+**Enseignements clés (corrigés) :**
+- Le tableau initial ne mesurait que le win rate **final** — FiLM (16%) semblait meilleur, mais en win rate **max**, task-cond `1039` atteint **59%** sur pool10 et **69%** sur pool6.
+- FiLM est le plus **stable** en fin de run (16% final vs 7% pour task-cond), mais task-cond a un pic plus élevé.
+- La variance inter-runs est aussi grande que la variance inter-architectures (2 runs par groupe insuffisant pour conclure statistiquement).
 - Pool3 échoue systématiquement (0–1%) avec task-conditioning ou FiLM — mais ces poids "ratés" servent de fondation utile pour pool6 (sauter pool3 = pool6 tombe à 17%).
 - Le catastrophic forgetting frappe systématiquement entre ep 2500–4000 dans tous les runs.
-- Checkpoint FiLM pool3 disponible : `models/20260528_1620_pool3_ep5000_from_20260528_1618/final.pt`
+- Meilleur checkpoint pool3 task-cond : `models/20260528_1039_pool3_ep5000_from_20260528_1037/final.pt`
 
 #### Phase 4 — Amélioration itérative
 - ~~Curriculum progressif seeds (1→3→6→10)~~ ✅ effectué
@@ -283,24 +298,31 @@ La racine du problème n'est pas le déséquilibre du buffer mais l'architecture
 - ~~Replay stratifié par seed~~ ✅ `StratifiedReplayBuffer` implémenté et testé
 - ~~Task-conditioning (entrée)~~ ✅ `encode_obs` 304→314, seed one-hot bits 304–313
 - ~~FiLM conditioning~~ ✅ `FiLMLayer`, `FiLMDQNetwork`, `DQNAgent` mis à jour
+- ~~`--pretrained` CLI curriculum~~ ✅ ajouté à `curriculum.py`
+- ~~`--architecture {film,taskcond}` CLI~~ ✅ ajouté à `train.py` et `curriculum.py`
+- ~~Métadonnées dans les logs~~ ✅ `_log_meta()` : ligne `{"type":"meta"}` en tête de chaque fichier
 
-**⏭️ Prochaine étape (session suivante) :**
+**Session du 2026-05-29 :**
+- **332 tests, 0 échec.**
+- Analyse rétrospective des runs 2026-05-28 : win rate max vs final par architecture (voir tableau ci-dessus).
+- Décision : prochain run en **task-cond** (meilleur pic pool10 : 59%, pool6 très stable à 68% final, 2× plus rapide que FiLM).
+
+**⏭️ Prochaine étape :**
 
 **Objectif : 100% win rate sur 100 essais.**
 
-Étape 1 — Ajouter `--pretrained` à la CLI de `curriculum.py` (petite modification) pour pouvoir repartir d'un checkpoint existant sans relancer depuis seed0.
-
-Étape 2 — Relancer FiLM depuis le checkpoint pool3 déjà entraîné, avec 10 000 ep sur pool6 puis pool10 :
+Relancer en task-cond depuis le meilleur checkpoint pool3 (`1039`), avec 10 000 ep sur pool6 puis pool10 :
 ```bash
-.venv/Scripts/python.exe src/curriculum.py \
-    --pool 0,1,2,3,4,5,6,7,8,9 \
-    --stages 6,10 \
-    --max-episodes-per-stage 10000 \
-    --win-rate-threshold 0.8 \
-    --lr 1e-4 \
-    --pretrained models/20260528_1620_pool3_ep5000_from_20260528_1618/final.pt
+.venv\Scripts\python.exe src/curriculum.py `
+    --pool 0,1,2,3,4,5,6,7,8,9 `
+    --stages 6,10 `
+    --max-episodes-per-stage 10000 `
+    --win-rate-threshold 0.8 `
+    --lr 3e-4,1e-4 `
+    --architecture taskcond `
+    --pretrained models/20260528_1039_pool3_ep5000_from_20260528_1037/final.pt
 ```
-Durée estimée : ~4h (FiLM est 2× plus lent). Pool6 atteignait 51% en 5000 ep — 10 000 ep devrait lui permettre de franchir le seuil 80%.
+Durée estimée : ~4h. Pool6 atteignait 68% final en 5000 ep — 10 000 ep devrait lui permettre de franchir le seuil 80%.
 
 ### Stratégie terrains (détail)
 | Option | Description | Quand |

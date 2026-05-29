@@ -9,6 +9,7 @@ import torch
 from model import DQNetwork, FiLMDQNetwork, INPUT_DIM, OUTPUT_DIM, HIDDEN1, HIDDEN2, HIDDEN3, OBS_DIM, TASK_DIM
 from dungeon_env import DungeonEnv
 from train import (
+    ARCHITECTURES,
     encode_obs,
     ReplayBuffer,
     StratifiedReplayBuffer,
@@ -16,6 +17,7 @@ from train import (
     train,
     _run_episode,
     _log_episode,
+    _log_meta,
     _pretrained_label,
     _run_label,
     _run_name,
@@ -367,6 +369,55 @@ class TestDQNAgent:
 
 
 # ===========================================================================
+# DQNAgent — architecture
+# ===========================================================================
+
+class TestDQNAgentArchitecture:
+    def test_default_arch_is_film(self):
+        agent = DQNAgent()
+        assert isinstance(agent.q_net, FiLMDQNetwork)
+
+    def test_film_arch_explicit(self):
+        agent = DQNAgent(arch="film")
+        assert isinstance(agent.q_net, FiLMDQNetwork)
+        assert isinstance(agent.target_net, FiLMDQNetwork)
+
+    def test_taskcond_arch(self):
+        agent = DQNAgent(arch="taskcond")
+        assert isinstance(agent.q_net, DQNetwork)
+        assert isinstance(agent.target_net, DQNetwork)
+
+    def test_invalid_arch_raises(self):
+        with pytest.raises(ValueError, match="arch"):
+            DQNAgent(arch="unknown")
+
+    def test_architectures_dict_contains_both(self):
+        assert "film" in ARCHITECTURES
+        assert "taskcond" in ARCHITECTURES
+
+    def test_taskcond_forward_shape(self):
+        agent = DQNAgent(arch="taskcond")
+        s = _dummy_state()
+        q = agent.q_net(s.unsqueeze(0))
+        assert q.shape == (1, len(ACTIONS))
+
+    def test_taskcond_train_completes(self, tmp_path):
+        agent = train(episodes=3, seed=42, arch="taskcond",
+                      log_path=tmp_path / "t.jsonl",
+                      model_dir=tmp_path / "models", verbose=False)
+        assert isinstance(agent, DQNAgent)
+        assert isinstance(agent.q_net, DQNetwork)
+
+    def test_taskcond_checkpoint_loadable(self, tmp_path):
+        train(episodes=3, seed=42, arch="taskcond",
+              log_path=tmp_path / "t.jsonl",
+              model_dir=tmp_path / "models", verbose=False)
+        net = DQNetwork()
+        net.load_state_dict(torch.load(tmp_path / "models" / "final.pt",
+                                       weights_only=True))
+
+
+# ===========================================================================
 # _run_label / _run_name
 # ===========================================================================
 
@@ -438,34 +489,47 @@ class TestRunEpisode:
         self.agent = DQNAgent()
         self.buf   = ReplayBuffer(BUFFER_SIZE)
 
-    def test_returns_tuple_of_three(self):
+    def test_returns_tuple_of_four(self):
         result = _run_episode(self.env, self.agent, self.buf)
-        assert isinstance(result, tuple) and len(result) == 3
+        assert isinstance(result, tuple) and len(result) == 4
 
     def test_moves_is_list_of_strings(self):
-        moves, _, _ = _run_episode(self.env, self.agent, self.buf)
+        moves, _, _, _ = _run_episode(self.env, self.agent, self.buf)
         assert isinstance(moves, list)
         assert all(isinstance(m, str) for m in moves)
 
     def test_moves_are_valid_actions(self):
-        moves, _, _ = _run_episode(self.env, self.agent, self.buf)
+        moves, _, _, _ = _run_episode(self.env, self.agent, self.buf)
         assert all(m in ACTIONS for m in moves)
 
     def test_ep_reward_is_float(self):
-        _, ep_reward, _ = _run_episode(self.env, self.agent, self.buf)
+        _, ep_reward, _, _ = _run_episode(self.env, self.agent, self.buf)
         assert isinstance(ep_reward, float)
 
     def test_info_has_required_keys(self):
-        _, _, info = _run_episode(self.env, self.agent, self.buf)
+        _, _, info, _ = _run_episode(self.env, self.agent, self.buf)
         for key in ("score", "moves", "steps", "won"):
             assert key in info
+
+    def test_seed_is_int_for_fixed_seed(self):
+        """Avec seed fixe, le 4e élément doit être l'entier du seed."""
+        _, _, _, seed = _run_episode(self.env, self.agent, self.buf)
+        assert seed == 42
+
+    def test_seed_is_pool_value_for_pool(self):
+        """Avec seed_pool, le seed retourné doit être une valeur du pool."""
+        pool = [10, 20, 30]
+        env  = DungeonEnv(seed_pool=pool)
+        buf  = ReplayBuffer(BUFFER_SIZE)
+        _, _, _, seed = _run_episode(env, DQNAgent(), buf)
+        assert seed in pool
 
     def test_buffer_grows_after_episode(self):
         _run_episode(self.env, self.agent, self.buf)
         assert len(self.buf) > 0
 
     def test_moves_not_empty(self):
-        moves, _, _ = _run_episode(self.env, self.agent, self.buf)
+        moves, _, _, _ = _run_episode(self.env, self.agent, self.buf)
         assert len(moves) > 0
 
 
@@ -489,8 +553,18 @@ class TestLogEpisode:
         agent = DQNAgent()
         _log_episode(f, 1, self._make_info(), ["RIGHT"], agent, -0.01)
         entry = json.loads(f.getvalue().strip())
-        for key in ("episode", "score", "moves", "epsilon", "reward"):
+        for key in ("episode", "seed", "score", "moves", "epsilon", "reward"):
             assert key in entry
+
+    def test_seed_field_matches(self):
+        f = io.StringIO()
+        _log_episode(f, 1, self._make_info(), [], DQNAgent(), 0.0, seed=42)
+        assert json.loads(f.getvalue())["seed"] == 42
+
+    def test_seed_field_none_when_not_provided(self):
+        f = io.StringIO()
+        _log_episode(f, 1, self._make_info(), [], DQNAgent(), 0.0)
+        assert json.loads(f.getvalue())["seed"] is None
 
     def test_episode_field_matches(self):
         f = io.StringIO()
@@ -508,6 +582,87 @@ class TestLogEpisode:
         _log_episode(f, 1, self._make_info(), [], agent, 0.0)
         eps = json.loads(f.getvalue())["epsilon"]
         assert eps == round(agent.epsilon, 4)
+
+
+# ===========================================================================
+# _log_meta
+# ===========================================================================
+
+class TestLogMeta:
+    def _make_agent(self):
+        return DQNAgent()
+
+    def test_writes_valid_json(self):
+        f = io.StringIO()
+        _log_meta(f, self._make_agent(), 100, 1e-3, 42, None, None)
+        entry = json.loads(f.getvalue().strip())
+        assert isinstance(entry, dict)
+
+    def test_type_field_is_meta(self):
+        f = io.StringIO()
+        _log_meta(f, self._make_agent(), 100, 1e-3, 42, None, None)
+        assert json.loads(f.getvalue())["type"] == "meta"
+
+    def test_command_field_is_string(self):
+        f = io.StringIO()
+        _log_meta(f, self._make_agent(), 100, 1e-3, None, None, None)
+        entry = json.loads(f.getvalue())
+        assert isinstance(entry["command"], str)
+
+    def test_architecture_matches_agent(self):
+        f = io.StringIO()
+        agent = self._make_agent()
+        _log_meta(f, agent, 100, 1e-3, None, None, None)
+        entry = json.loads(f.getvalue())
+        assert entry["architecture"] == type(agent.q_net).__name__
+
+    def test_hyperparams_contains_required_keys(self):
+        f = io.StringIO()
+        _log_meta(f, self._make_agent(), 500, 3e-4, None, [0, 1, 2], None)
+        hp = json.loads(f.getvalue())["hyperparams"]
+        for key in ("episodes", "lr", "gamma", "epsilon_start", "epsilon_end",
+                    "eps_decay", "buffer_size", "batch_size", "target_update",
+                    "max_steps", "seed", "seed_pool", "pretrained"):
+            assert key in hp
+
+    def test_hyperparams_episodes_matches(self):
+        f = io.StringIO()
+        _log_meta(f, self._make_agent(), 999, 1e-3, None, None, None)
+        assert json.loads(f.getvalue())["hyperparams"]["episodes"] == 999
+
+    def test_hyperparams_lr_matches(self):
+        f = io.StringIO()
+        _log_meta(f, self._make_agent(), 100, 2e-4, None, None, None)
+        assert json.loads(f.getvalue())["hyperparams"]["lr"] == pytest.approx(2e-4)
+
+    def test_hyperparams_seed_pool(self):
+        f = io.StringIO()
+        _log_meta(f, self._make_agent(), 100, 1e-3, None, [0, 1, 2], None)
+        assert json.loads(f.getvalue())["hyperparams"]["seed_pool"] == [0, 1, 2]
+
+    def test_hyperparams_pretrained_none(self):
+        f = io.StringIO()
+        _log_meta(f, self._make_agent(), 100, 1e-3, None, None, None)
+        assert json.loads(f.getvalue())["hyperparams"]["pretrained"] is None
+
+    def test_hyperparams_pretrained_path(self, tmp_path):
+        f = io.StringIO()
+        p = tmp_path / "final.pt"
+        _log_meta(f, self._make_agent(), 100, 1e-3, None, None, p)
+        assert json.loads(f.getvalue())["hyperparams"]["pretrained"] == str(p)
+
+    def test_extra_fields_merged(self):
+        f = io.StringIO()
+        _log_meta(f, self._make_agent(), 100, 1e-3, None, None, None,
+                  extra={"stage": 2, "full_pool": [0, 1, 2]})
+        entry = json.loads(f.getvalue())
+        assert entry["stage"] == 2
+        assert entry["full_pool"] == [0, 1, 2]
+
+    def test_ends_with_newline(self):
+        f = io.StringIO()
+        _log_meta(f, self._make_agent(), 100, 1e-3, None, None, None)
+        assert f.getvalue().endswith("\n")
 
 
 # ===========================================================================
@@ -553,26 +708,60 @@ class TestTrainLoop:
               model_dir=tmp_path / "models", verbose=False)
         assert log.exists()
 
+    def _episode_lines(self, log: Path) -> list[dict]:
+        """Retourne uniquement les lignes d'épisodes (exclut la ligne meta)."""
+        return [json.loads(l) for l in log.read_text().splitlines()
+                if json.loads(l).get("type") != "meta"]
+
     def test_log_line_count_matches_episodes(self, tmp_path):
         log = tmp_path / "test.jsonl"
         train(episodes=5, seed=42, log_path=log,
               model_dir=tmp_path / "models", verbose=False)
-        lines = log.read_text().strip().splitlines()
-        assert len(lines) == 5
+        assert len(self._episode_lines(log)) == 5
+
+    def test_log_has_meta_line_first(self, tmp_path):
+        log = tmp_path / "test.jsonl"
+        train(episodes=3, seed=42, log_path=log,
+              model_dir=tmp_path / "models", verbose=False)
+        first = json.loads(log.read_text().splitlines()[0])
+        assert first.get("type") == "meta"
+
+    def test_meta_line_has_required_fields(self, tmp_path):
+        log = tmp_path / "test.jsonl"
+        train(episodes=2, seed=42, log_path=log,
+              model_dir=tmp_path / "models", verbose=False)
+        meta = json.loads(log.read_text().splitlines()[0])
+        for key in ("type", "command", "architecture", "hyperparams"):
+            assert key in meta
 
     def test_log_entry_has_required_fields(self, tmp_path):
         log = tmp_path / "test.jsonl"
         train(episodes=2, seed=42, log_path=log,
               model_dir=tmp_path / "models", verbose=False)
-        entry = json.loads(log.read_text().splitlines()[0])
-        for key in ("episode", "score", "moves", "epsilon", "reward"):
+        entry = self._episode_lines(log)[0]
+        for key in ("episode", "seed", "score", "moves", "epsilon", "reward"):
             assert key in entry
+
+    def test_log_entry_seed_matches_fixed_seed(self, tmp_path):
+        log = tmp_path / "test.jsonl"
+        train(episodes=3, seed=42, log_path=log,
+              model_dir=tmp_path / "models", verbose=False)
+        for entry in self._episode_lines(log):
+            assert entry["seed"] == 42
+
+    def test_log_entry_seed_in_pool(self, tmp_path):
+        log = tmp_path / "test.jsonl"
+        pool = [0, 1, 2]
+        train(episodes=5, seed_pool=pool, log_path=log,
+              model_dir=tmp_path / "models", verbose=False)
+        for entry in self._episode_lines(log):
+            assert entry["seed"] in pool
 
     def test_log_episode_counter_increments(self, tmp_path):
         log = tmp_path / "test.jsonl"
         train(episodes=3, seed=42, log_path=log,
               model_dir=tmp_path / "models", verbose=False)
-        episodes = [json.loads(l)["episode"] for l in log.read_text().splitlines()]
+        episodes = [e["episode"] for e in self._episode_lines(log)]
         assert episodes == [1, 2, 3]
 
     def test_creates_final_checkpoint(self, tmp_path):
@@ -599,8 +788,7 @@ class TestTrainLoop:
         log = tmp_path / "test.jsonl"
         train(episodes=3, seed=42, log_path=log,
               model_dir=tmp_path / "models", verbose=False)
-        for line in log.read_text().splitlines():
-            entry = json.loads(line)
+        for entry in self._episode_lines(log):
             assert isinstance(entry["score"], int)
             assert 0 <= entry["score"] <= 100
 
@@ -638,5 +826,4 @@ class TestTrainLoop:
         agent = train(episodes=10, seed_pool=[0, 1, 2], log_path=log,
                       model_dir=tmp_path / "models", verbose=False)
         assert isinstance(agent, DQNAgent)
-        lines = log.read_text().strip().splitlines()
-        assert len(lines) == 10
+        assert len(self._episode_lines(log)) == 10
