@@ -67,6 +67,32 @@ Compile le jeu en exécutable Windows autonome (PyInstaller).
 
 ---
 
+## PPO Stable-Baselines3 (2026-06-01) ✅
+
+`src/train_ppo.py` — entraînement PPO via SB3. Résout le catastrophic forgetting.
+
+```bash
+.venv\Scripts\python.exe src/train_ppo.py --timesteps 500000 --seed-pool 0,1,2,3,4,5,6,7,8,9
+.venv\Scripts\python.exe src/train_ppo.py --timesteps 200000 --seed 0
+```
+
+**Résultats vs DQN (pool10) :**
+- Win rate max online : **89%** (PPO) vs 59% (DQN task-cond)
+- Pas de catastrophic forgetting : plancher **30%** vs 0% (DQN)
+- Eval déterministe : 30–50% (10 seeds)
+
+**Logs** : `{"episode", "timestep", "seed", "won", "score", "moves", "reward"}` — même format que DQN.
+**Checkpoints** : `.zip` (SB3) tous les 50k timesteps + `final.zip`
+
+**`analyze/evaluate.py`** supporte maintenant les deux formats :
+- `.pt` → DQN (inchangé)
+- `.zip` → PPO SB3 (`deterministic=True`)
+
+⚠️ **UI non adaptée** : `exploit.py` et `ui.py` ne chargent pas encore les `.zip` PPO.
+→ Prochaine session : adapter `load_net` + `run_one_episode_info` + file picker UI.
+
+---
+
 ## Bilan expérimental DQN (2026-06-01)
 
 Le catastrophic forgetting sur multi-seeds n'est **pas un problème d'architecture** mais d'**algorithme**.

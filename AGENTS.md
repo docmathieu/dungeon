@@ -241,16 +241,88 @@ MLP ne peut maintenir les deux politiques simultanément sans mécanisme explici
 
 ---
 
+### Agent : train-ppo ✅ *(Phase 2 — PPO)*
+**Fichier** : `src/train_ppo.py`
+**Tests** : `tests/test_train_ppo.py` (33 tests)
+
+Entraînement PPO via Stable-Baselines3 — résout le catastrophic forgetting multi-seeds.
+
+```bash
+python src/train_ppo.py --timesteps 500000 --seed-pool 0,1,2,3,4,5,6,7,8,9
+python src/train_ppo.py --timesteps 200000 --seed 0
+python src/train_ppo.py --timesteps 500000 --seed-pool 0-99 --n-envs 4
+python src/train_ppo.py --timesteps 500000 --seed-pool 0,...,9 --pretrained models/.../final.zip
+```
+
+**`DungeonGymEnv(gym.Env)`** — wrapper gymnasium/SB3 :
+- `observation_space = Box(0, 1, shape=(304,))` — même encodage que `encode_obs_pure`
+- `action_space = Discrete(4)` — LEFT/RIGHT/UP/DOWN
+- `reset()` → `(np.ndarray 304, info_dict)`
+- `step(action_int)` → `(obs, reward, terminated, truncated, info)`
+- `info` contient : `score`, `moves`, `steps`, `won`, `seed`
+
+**`LogCallback`** — log JSON par épisode terminé :
+```json
+{"episode": 42, "timestep": 3800, "seed": 0, "won": true, "score": 100, "moves": 8, "reward": 0.93}
+```
+Affichage toutes les 10 000 timesteps : `ts X/N  ep=N  wr=X%  t=Xs`
+
+**Hyperparamètres PPO** (défauts) :
+- `N_STEPS=2048`, `BATCH_SIZE=64`, `N_EPOCHS=10`
+- `GAMMA=0.99`, `GAE_LAMBDA=0.95`, `CLIP_RANGE=0.2`
+- `NET_ARCH=[256, 128, 64]`, `LR=3e-4`
+- Checkpoints `.zip` tous les 50 000 timesteps + `final.zip`
+
+**Sorties** : `logs/{ts}_run/{ts}_ppo_{label}_ts{N}.jsonl` et `models/{ts}_run/{ts}_ppo_{label}_ts{N}/`
+
+**Résultats run pool10, 500k timesteps (2026-06-01) :**
+
+| Métrique | DQN (meilleur) | PPO |
+|----------|---------------|-----|
+| Win rate max online | 59% (task-cond) | **89%** |
+| Win rate plancher | 0% (effondrement) | **30%** |
+| Catastrophic forgetting | ✅ oui | **❌ non** |
+| Eval déterministe pool10 | — | 30–50% |
+
+⚠️ Écart online vs eval déterministe : PPO utilise une politique stochastique à l'entraînement.
+`deterministic=True` dans l'éval donne des scores plus bas — prévoir plusieurs épisodes/seed.
+
+---
+
+### ⏭️ Prochaines étapes PPO (session suivante)
+
+**1. Adapter l'UI pour charger les modèles PPO (.zip)**
+
+`exploit.py` et `ui.py` ne gèrent que les `.pt` DQN. Il faut :
+- Ajouter `load_ppo(path)` dans `exploit.py` : `PPO.load(path)`
+- Ajouter `run_one_episode_info_ppo(model, seed)` utilisant `DungeonGymEnv`
+- Mettre à jour `load_net` pour détecter `.zip` → déléguer à `load_ppo`
+- Mettre à jour `run_one_episode_info` pour gérer les deux types
+- Dans `ui.py` : le file picker `[IA simple model]` doit accepter `.zip` en plus de `.pt`
+
+**2. Améliorer l'évaluation**
+- Tester avec plusieurs épisodes par seed (politique stochastique vs déterministe)
+- Évaluer sur seeds 100–299 (généralisation hors-training)
+
+**3. Entraîner pool100 avec PPO**
+```bash
+python src/train_ppo.py --timesteps 2000000 --seed-pool 0-99
+```
+
+---
+
 ### Agent : replay-model *(Phase 3 — visualisation pygame)* ✅
 Fichiers : `src/exploit.py`, `src/ui.py`
 
-`load_net(path)` — détection automatique d'architecture :
+`load_net(path)` — détection automatique d'architecture (`.pt` DQN uniquement pour l'instant) :
 - Clés contenant `film` → `FiLMDQNetwork`
 - `net.0.weight.shape[1] == OBS_DIM (304)` → `ObsDQNetwork`
 - Sinon → `DQNetwork`
 
 `run_one_episode_info(net, seed, seed_idx=0)` → `(trail, won, score)`
 Utilise `encode_obs_pure` pour `ObsDQNetwork`, `encode_obs` pour les autres.
+
+⚠️ **Ne supporte pas encore les modèles PPO (.zip)** — voir prochaines étapes ci-dessus.
 
 ---
 

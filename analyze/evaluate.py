@@ -1,16 +1,15 @@
 """evaluate.py — Évalue un checkpoint sur un ensemble de seeds.
 
-Mesure le taux de victoire et le score moyen d'un modèle entraîné,
-en particulier sur des seeds jamais vus pendant l'entraînement.
+Supporte les checkpoints DQN (.pt) et PPO SB3 (.zip).
 
 Utilisation :
     cd dungeon/claude
-    .venv\\Scripts\\python.exe analyze/evaluate.py --checkpoint models/.../final.pt --seeds 100-299
-    .venv\\Scripts\\python.exe analyze/evaluate.py --checkpoint models/.../final.pt --seeds 0,1,2,3
-    .venv\\Scripts\\python.exe analyze/evaluate.py --checkpoint models/.../final.pt --seeds 100-299 --verbose
+    .venv\\Scripts\\python.exe analyze/evaluate.py --checkpoint models/.../final.pt  --seeds 100-299
+    .venv\\Scripts\\python.exe analyze/evaluate.py --checkpoint models/.../final.zip --seeds 0-9
+    .venv\\Scripts\\python.exe analyze/evaluate.py --checkpoint models/.../final.zip --seeds 0-9 --verbose
 
 Options :
-    --checkpoint  Chemin vers un fichier .pt
+    --checkpoint  Chemin vers un fichier .pt (DQN) ou .zip (PPO SB3)
     --seeds       Plage (ex: 100-299) ou liste (ex: 0,1,5,10)
     --verbose     Affiche le résultat de chaque épisode (won/score)
 """
@@ -33,16 +32,49 @@ def _parse_seeds(seeds_arg: str) -> list[int]:
     return [int(s) for s in seeds_arg.split(",")]
 
 
+def _run_episode_ppo(model, seed: int) -> tuple[bool, int]:
+    """Joue un épisode complet avec un modèle PPO SB3.
+
+    Retourne (won, score).
+    """
+    from train_ppo import DungeonGymEnv
+    import numpy as np
+
+    env = DungeonGymEnv(seed=seed)
+    obs, _ = env.reset()
+    terminated, truncated = False, False
+
+    while not (terminated or truncated):
+        action, _ = model.predict(obs, deterministic=True)
+        obs, _reward, terminated, truncated, info = env.step(int(action))
+
+    return bool(info["won"]), int(info["score"])
+
+
 def evaluate(checkpoint: Path, seeds: list[int], verbose: bool = False) -> dict:
-    """Évalue le checkpoint sur la liste de seeds. Retourne un dict de métriques."""
-    net = load_net(checkpoint)
+    """Évalue le checkpoint sur la liste de seeds. Retourne un dict de métriques.
+
+    Détecte automatiquement le format : .pt → DQN, .zip → PPO SB3.
+    """
+    # Chargement selon le format
+    if checkpoint.suffix == ".zip":
+        from stable_baselines3 import PPO
+        model = PPO.load(str(checkpoint))
+        is_ppo = True
+    else:
+        model = load_net(checkpoint)
+        is_ppo = False
 
     wins = 0
     scores: list[int] = []
     score_wins: list[int] = []
 
     for seed in seeds:
-        _trail, won, score = run_one_episode_info(net, seed=seed, seed_idx=0)
+        if is_ppo:
+            won, score = _run_episode_ppo(model, seed)
+        else:
+            _trail, won, score = run_one_episode_info(model, seed=seed, seed_idx=0)
+
         wins += int(won)
         scores.append(score)
         if won:
@@ -68,7 +100,8 @@ def evaluate(checkpoint: Path, seeds: list[int], verbose: bool = False) -> dict:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Évalue un checkpoint sur un ensemble de seeds")
-    parser.add_argument("--checkpoint", required=True, type=Path, help="Chemin vers un fichier .pt")
+    parser.add_argument("--checkpoint", required=True, type=Path,
+                        help="Chemin vers un fichier .pt (DQN) ou .zip (PPO)")
     parser.add_argument("--seeds", required=True, help="Plage (ex: 100-299) ou liste (ex: 0,1,5)")
     parser.add_argument("--verbose", action="store_true", help="Détail par seed")
     args = parser.parse_args()
@@ -78,7 +111,8 @@ def main() -> None:
         sys.exit(1)
 
     seeds = _parse_seeds(args.seeds)
-    print(f"Checkpoint : {args.checkpoint}")
+    fmt = "PPO (.zip)" if args.checkpoint.suffix == ".zip" else "DQN (.pt)"
+    print(f"Checkpoint : {args.checkpoint}  [{fmt}]")
     print(f"Seeds      : {len(seeds)} seeds ({args.seeds})")
     print()
 
