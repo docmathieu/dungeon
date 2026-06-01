@@ -67,10 +67,40 @@ Compile le jeu en exécutable Windows autonome (PyInstaller).
 
 ---
 
+## Bilan expérimental DQN (2026-06-01)
+
+Le catastrophic forgetting sur multi-seeds n'est **pas un problème d'architecture** mais d'**algorithme**.
+Toutes les variantes DQN (MLP/task-cond/FiLM/obs) échouent à maintenir plusieurs politiques au-delà de pool3.
+
+| Expérience | Résultat clé |
+|---|---|
+| FiLM curriculum pool10 | 16% win rate final (meilleur multi-seeds) |
+| Task-cond curriculum pool10 | 59% win rate **max**, 7% final |
+| ObsDQNetwork pool100 20k ep | 4% win rate max seeds inconnus = seeds vus → pas d'apprentissage |
+| ObsDQNetwork seed unique | Score 100 dès ep1500 ✅ |
+| ObsDQNetwork curriculum pool3 | 23% max ep200, 0% à ep1000 — même pattern |
+
+**Piste suivante sérieuse : PPO** (algorithme on-policy, mises à jour stables).
+
+---
+
 ## Scripts d'analyse (`analyze/`)
 
 Scripts Python utilitaires pour l'étude des seeds et du comportement RL.
 Ne font pas partie du jeu ni de l'entraînement — à lancer manuellement depuis la racine du projet.
+
+### `analyze/evaluate.py` *(ajouté 2026-06-01)*
+**Résultat** : win rate + score moyen d'un checkpoint sur N seeds
+
+Évalue la performance d'un modèle entraîné, notamment sur des seeds jamais vus (mesure de généralisation).
+Détecte automatiquement l'architecture (ObsDQNetwork / FiLMDQNetwork / DQNetwork).
+
+```bash
+.venv\Scripts\python.exe analyze/evaluate.py --checkpoint models/.../final.pt --seeds 100-299
+.venv\Scripts\python.exe analyze/evaluate.py --checkpoint models/.../final.pt --seeds 0-99 --verbose
+```
+
+---
 
 ### `analyze/analyze_runs.py`
 **Résultat** : tableau comparatif win rate max / final par chaîne de runs

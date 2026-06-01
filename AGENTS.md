@@ -142,22 +142,29 @@ Contraintes :
 ### Agent : train-rl ✅ *(Phase 2)*
 **Skill** : `/train-rl`
 **Fichiers produits** : `src/model.py`, `src/train.py`, `models/`, `logs/`
-**Tests** : `tests/test_train.py` (35 tests)
+**Tests** : `tests/test_train.py`
 
 Boucle d'entraînement DQN headless.
 
 ```bash
-python src/train.py --episodes 5000 --seed-pool 0,1,2,...
+python src/train.py --episodes 5000 --seed-pool 0,1,2,... --architecture obs
 ```
 
+Architectures disponibles (`--architecture`) :
+- `obs` — `ObsDQNetwork` (304→256→128→64→4) : grille seule, sans seed one-hot
+  ⚠️ Ne résout pas le catastrophic forgetting multi-seeds — pire que task-cond car aucune séparation possible
+- `taskcond` — `DQNetwork` (314→256→128→64→4) : grille + seed one-hot concaténé
+- `film` — `FiLMDQNetwork` (obs 304 + task 10) : grille + FiLM conditioning par couche (défaut)
+
 Composants :
-- `DQNetwork` — MLP PyTorch : 304 → Dense(256,ReLU) → Dense(128,ReLU) → Dense(64,ReLU) → 4 sorties
+- `encode_obs_pure(obs)` — one-hot grille (300) + positions normalisées (4) = **304 floats** (sans seed)
+- `encode_obs(obs, seed_idx)` — idem + seed one-hot 10 bits = **314 floats**
+- `_encoder_for(arch)` — retourne l'encodeur adapté à l'architecture
+- `DQNAgent.arch` + `DQNAgent._encode` — encodeur sélectionné à l'init, utilisé dans `_run_episode`
 - `ReplayBuffer` — buffer circulaire FIFO, capacité 10 000
-- `StratifiedReplayBuffer(capacity, n_seeds)` — un sous-buffer par seed, garantit `batch_size // n_seeds` transitions par seed dans chaque batch
-- `DQNAgent` — epsilon-greedy (1.0→0.05), réseau cible synchronisé tous les 100 épisodes
-- `encode_obs()` — one-hot grille (300) + positions normalisées (4) = 304 floats
-- Logs JSON : `{"episode", "score", "moves", "epsilon", "reward"}` (un par épisode)
-- Nommage automatique : `logs/yyyymmdd_hhmm_{label}_ep{N}[_from_{timestamp}].jsonl` et `models/yyyymmdd_hhmm_{label}_ep{N}[_from_{timestamp}]/`
+- `StratifiedReplayBuffer(capacity, n_seeds)` — un sous-buffer par seed, batch équilibré
+- Logs JSON : première ligne `{"type":"meta"}`, puis `{"episode", "score", "moves", "epsilon", "reward"}`
+- **Nommage CLI** : sorties dans `logs/{ts}_run/{run}.jsonl` et `models/{ts}_run/{run}/` (cohérence curriculum)
 - `{label}` = `seed42` / `pool10` / `random` — checkpoints `ep<N>.pt` tous les 500 épisodes + `final.pt`
 - `--pretrained path/final.pt` : repart des poids d'un run précédent (transfer learning)
 
@@ -192,9 +199,58 @@ Paramètres CLI :
 - `--win-rate-threshold` : taux de victoire cible pour progresser (défaut `0.8`)
 - `--lr` : learning rate(s) par étape, ex. `3e-4,1e-4` — liste de mêmes longueur que `stages` ou plus courte (dernière valeur répétée) (défaut `1e-3`)
 
-### Agent : replay-model *(Phase 3)*
-Charge un checkpoint `.pt` et rejoue la partie dans pygame via seed + séquence générée par le modèle.
-Lancement prévu : `python src/main.py --seed 42 --replay logs/episode_xxx.jsonl`
+---
+
+## Conclusions expérimentales DQN (2026-06-01) — Limites atteintes
+
+### Catastrophic forgetting — diagnostic définitif
+
+Après 10+ runs couvrant toutes les architectures (MLP, task-cond, FiLM, obs) et stratégies
+(curriculum, stratified replay, transfer learning, pool100) :
+
+**Le catastrophic forgetting n'est pas un problème d'architecture — c'est un problème d'algorithme.**
+
+DQN avec gradient descent classique écrase les poids précédents à chaque mise à jour.
+Quand deux seeds demandent des actions opposées dans des états similaires, aucun réseau
+MLP ne peut maintenir les deux politiques simultanément sans mécanisme explicite.
+
+| Architecture | Séparation politiques | Généralisation | Catastrophic forgetting |
+|---|---|---|---|
+| `taskcond` | ✅ via one-hot seed | ❌ (triche par seed) | ✅ présent pool3+ |
+| `film` | ✅ via FiLM layers | ❌ (triche par seed) | ✅ présent pool3+ |
+| `obs` | ❌ aucune | ❌ (pas mieux) | ✅ présent pool2+ |
+
+**Résultat expérimental `obs` curriculum (2026-06-01) :**
+- Stage 1 (seed0, pretrained) : 80% win rate atteint en 172 épisodes ✅
+- Stage 2 (pool3) : pic 23% à ep200, effondrement à 0% dès ep1000 — même pattern que FiLM/task-cond
+
+**Résultat expérimental `obs` pool100 (2026-06-01) :**
+- 20 000 épisodes, plafond 4% sur seeds inconnus ET seeds vus → le réseau n'apprend rien
+- Cause : ~200 épisodes/seed, insuffisant pour converger
+
+### Ce qui fonctionne
+- **Seed unique** : toutes les architectures convergent en <2000 épisodes
+- **Pool ≤ 3 seeds** : convergence partielle possible (23–55% selon l'archi)
+- **Meilleur checkpoint exploitable** : task-cond run 28/1039, pool10, ~59% win rate max
+
+### Pistes restantes (non testées avec DQN)
+- **PPO** (Proximal Policy Optimization) — algorithme on-policy, mises à jour bornées,
+  moins susceptible d'écraser les politiques précédentes
+- **Accepter la limite** : pool fixe de seeds connus avec task-cond/FiLM,
+  sans prétendre à la généralisation
+
+---
+
+### Agent : replay-model *(Phase 3 — visualisation pygame)* ✅
+Fichiers : `src/exploit.py`, `src/ui.py`
+
+`load_net(path)` — détection automatique d'architecture :
+- Clés contenant `film` → `FiLMDQNetwork`
+- `net.0.weight.shape[1] == OBS_DIM (304)` → `ObsDQNetwork`
+- Sinon → `DQNetwork`
+
+`run_one_episode_info(net, seed, seed_idx=0)` → `(trail, won, score)`
+Utilise `encode_obs_pure` pour `ObsDQNetwork`, `encode_obs` pour les autres.
 
 ---
 
@@ -202,6 +258,30 @@ Lancement prévu : `python src/main.py --seed 42 --replay logs/episode_xxx.jsonl
 
 Scripts utilitaires pour comprendre les seeds et le comportement RL.
 À lancer manuellement depuis la racine du projet — pas de skill associé.
+
+### `analyze/evaluate.py` *(ajouté 2026-06-01)*
+**Objectif** : évaluer la performance d'un checkpoint sur un ensemble de seeds (connus ou inconnus).
+
+**Usage** :
+```bash
+.venv\Scripts\python.exe analyze/evaluate.py --checkpoint models/.../final.pt --seeds 100-299
+.venv\Scripts\python.exe analyze/evaluate.py --checkpoint models/.../final.pt --seeds 0,1,5,10
+.venv\Scripts\python.exe analyze/evaluate.py --checkpoint models/.../final.pt --seeds 0-99 --verbose
+```
+
+**Sorties** :
+- `Victoires : N/total (X%)` — win rate
+- `Score moyen : X` — tous épisodes (échecs = 0) — reflète la performance globale réelle
+- `Score moyen wins : X` — victoires uniquement
+
+**Détection automatique de l'architecture** via `load_net` : FiLM / ObsDQNetwork / DQNetwork.
+Pour `ObsDQNetwork`, utilise `encode_obs_pure` (304 floats). Pour les autres, `encode_obs(seed_idx=0)`.
+
+**Résultats de référence (2026-06-01) :**
+- Baseline task-cond (run 28/1039, seeds 100–299) : **1.0%**
+- ObsDQNetwork pool100 20 000 ep (seeds 100–299) : **1.5–4.0%** (plafond, pas de tendance)
+- ObsDQNetwork pool100 20 000 ep (seeds 0–99 vus) : **2.0–5.0%** → diagnostic : pas de mémorisation non plus
+- ObsDQNetwork seed=0 seul, 3 000 ep (seed=0) : **100%** win rate à ep1500 ✅
 
 ### `analyze/search_seeds.py`
 **Objectif** : trouver 20 seeds pédagogiquement intéressants pour le curriculum RL.
