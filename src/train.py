@@ -40,7 +40,7 @@ import torch.optim as optim
 sys.path.insert(0, os.path.dirname(__file__))
 
 from dungeon_env import DungeonEnv, ACTIONS
-from model import DQNetwork, FiLMDQNetwork, INPUT_DIM
+from model import DQNetwork, FiLMDQNetwork, ObsDQNetwork, INPUT_DIM, OBS_DIM
 
 
 # Nombre de bits du one-hot seed (task-conditioning) — doit correspondre à INPUT_DIM
@@ -67,6 +67,25 @@ CHECKPOINT_FREQ    = 500       # sauvegarde checkpoint (épisodes)
 # ---------------------------------------------------------------------------
 # Encodage de l'observation
 # ---------------------------------------------------------------------------
+
+def encode_obs_pure(obs: dict) -> torch.Tensor:
+    """Convertit une observation en tenseur float32 de taille 304 (sans seed one-hot).
+
+    Encodage :
+        grille   : one-hot 100×3 = 300 floats  (index = tile_idx*3 + type)
+        char_pos : (x/9, y/9)   =   2 floats  normalisés dans [0, 1]
+        exit_pos : (x/9, y/9)   =   2 floats  normalisés dans [0, 1]
+
+    Utilisé par ObsDQNetwork pour la généralisation à seeds inconnus.
+    """
+    one_hot = [0.0] * 300
+    for i, tile in enumerate(obs["grid"]):
+        one_hot[i * 3 + tile] = 1.0
+    cx, cy = obs["char_pos"]
+    ex, ey = obs["exit_pos"]
+    features = one_hot + [cx / 9.0, cy / 9.0, ex / 9.0, ey / 9.0]
+    return torch.tensor(features, dtype=torch.float32)
+
 
 def encode_obs(obs: dict, seed_idx: int = 0) -> torch.Tensor:
     """Convertit une observation DungeonEnv en tenseur float32 de taille 314.
@@ -183,7 +202,14 @@ class StratifiedReplayBuffer:
 # Agent DQN
 # ---------------------------------------------------------------------------
 
-ARCHITECTURES = {"film": FiLMDQNetwork, "taskcond": DQNetwork}
+ARCHITECTURES = {"film": FiLMDQNetwork, "taskcond": DQNetwork, "obs": ObsDQNetwork}
+
+
+def _encoder_for(arch: str):
+    """Retourne la fonction d'encodage adaptée à l'architecture."""
+    if arch == "obs":
+        return lambda obs, seed_idx=0: encode_obs_pure(obs)
+    return encode_obs
 
 
 class DQNAgent:
@@ -206,6 +232,8 @@ class DQNAgent:
         self._eps_decay = eps_decay
 
         net_cls         = ARCHITECTURES[arch]
+        self.arch       = arch
+        self._encode    = _encoder_for(arch)
         self.q_net      = net_cls()
         self.target_net = net_cls()
         self.target_net.load_state_dict(self.q_net.state_dict())
@@ -322,7 +350,7 @@ def _run_episode(
     obs       = env.reset()
     seed_idx  = env.current_seed_idx   # index du seed choisi pour cet épisode (constant)
     ep_seed   = env.current_seed       # valeur effective du seed (ex. 42)
-    state     = encode_obs(obs, seed_idx=seed_idx)
+    state     = agent._encode(obs, seed_idx=seed_idx)
     done      = False
     moves:    list[str] = []
     ep_reward = 0.0
@@ -331,7 +359,7 @@ def _run_episode(
         action_idx                   = agent.select_action(state)
         action                       = ACTIONS[action_idx]
         next_obs, reward, done, info = env.step(action)
-        next_state                   = encode_obs(next_obs, seed_idx=seed_idx)
+        next_state                   = agent._encode(next_obs, seed_idx=seed_idx)
 
         buf.push(state, action_idx, reward, next_state, done, seed_idx=seed_idx)
         agent.learn(buf)
@@ -499,7 +527,9 @@ if __name__ == "__main__":
     args      = _parse_args()
     pool      = [int(s) for s in args.seed_pool.split(",")] if args.seed_pool else None
     pre_label = _pretrained_label(args.pretrained)
-    run       = _run_name(_now(), args.episodes, args.seed, pool, pre_label)
+    ts        = _now()
+    run       = _run_name(ts, args.episodes, args.seed, pool, pre_label)
+    run_dir   = f"{ts}_run"
     train(
         episodes   = args.episodes,
         seed       = args.seed,
@@ -507,6 +537,6 @@ if __name__ == "__main__":
         lr         = args.lr,
         pretrained = args.pretrained,
         arch       = args.architecture,
-        log_path   = Path("logs") / f"{run}.jsonl",
-        model_dir  = Path("models") / run,
+        log_path   = Path("logs")   / run_dir / f"{run}.jsonl",
+        model_dir  = Path("models") / run_dir / run,
     )

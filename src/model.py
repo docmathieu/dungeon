@@ -1,12 +1,17 @@
 """model.py — réseaux MLP pour l'algorithme DQN.
 
-Deux architectures disponibles :
+Trois architectures disponibles :
 
-1. DQNetwork (baseline)
+1. ObsDQNetwork (généralisation)
+   OBS(304) → Linear(256) → ReLU → Linear(128) → ReLU → Linear(64) → ReLU → Linear(4)
+   Aucun signal de seed — décide uniquement depuis la grille visible.
+   Objectif : généraliser à des seeds jamais vus pendant l'entraînement.
+
+2. DQNetwork (task-conditioning)
    INPUT(314) → Linear(256) → ReLU → Linear(128) → ReLU → Linear(64) → ReLU → Linear(4)
    Le seed one-hot est concaténé à l'entrée — les couches cachées restent partagées.
 
-2. FiLMDQNetwork (recommandé pour multi-seeds)
+3. FiLMDQNetwork (conditioning avancé)
    obs(304) → FC1(256) → FiLM(task) → ReLU
            → FC2(128) → FiLM(task) → ReLU
            → FC3(64)  → FiLM(task) → ReLU
@@ -14,11 +19,13 @@ Deux architectures disponibles :
    Le seed one-hot module chaque couche cachée via gamma*x+beta appris,
    créant des pathways virtuellement séparés par seed sans multiplier les paramètres.
 
-Entrée commune (314 floats) :
+Entrée obs (304 floats, partagée par toutes les architectures) :
     - grille 10×10 en one-hot : 100 cases × 3 types = 300 floats
     - char_pos normalisé      : (x/9, y/9)          = 2 floats
     - exit_pos normalisé      : (x/9, y/9)           = 2 floats
-    - seed one-hot            : 10 bits (task-conditioning) = 10 floats
+
+DQNetwork / FiLMDQNetwork ajoutent :
+    - seed one-hot            : 10 bits (task-conditioning) = 10 floats  → INPUT_DIM = 314
 
 Sortie (4 floats) :
     Q-values pour les 4 actions (LEFT, RIGHT, UP, DOWN)
@@ -38,8 +45,39 @@ HIDDEN3    = 64
 OUTPUT_DIM = 4     # LEFT, RIGHT, UP, DOWN
 
 
+class ObsDQNetwork(nn.Module):
+    """Réseau MLP pour la généralisation — observation seule, sans seed one-hot.
+
+    Décide uniquement depuis la grille visible (304 floats).
+    Peut généraliser à des seeds jamais vus pendant l'entraînement.
+    """
+
+    def __init__(
+        self,
+        input_dim:  int = OBS_DIM,
+        hidden1:    int = HIDDEN1,
+        hidden2:    int = HIDDEN2,
+        hidden3:    int = HIDDEN3,
+        output_dim: int = OUTPUT_DIM,
+    ):
+        super().__init__()
+        self.net = nn.Sequential(
+            nn.Linear(input_dim, hidden1),
+            nn.ReLU(),
+            nn.Linear(hidden1, hidden2),
+            nn.ReLU(),
+            nn.Linear(hidden2, hidden3),
+            nn.ReLU(),
+            nn.Linear(hidden3, output_dim),
+        )
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """x : tensor de forme (batch_size, OBS_DIM) ou (OBS_DIM,)."""
+        return self.net(x)
+
+
 class DQNetwork(nn.Module):
-    """Réseau MLP baseline — seed one-hot concaténé en entrée."""
+    """Réseau MLP task-conditionné — seed one-hot concaténé en entrée."""
 
     def __init__(
         self,

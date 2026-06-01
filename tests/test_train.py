@@ -12,11 +12,12 @@ from pathlib import Path
 import pytest
 import torch
 
-from model import DQNetwork, FiLMDQNetwork, INPUT_DIM, OUTPUT_DIM, OBS_DIM, TASK_DIM
+from model import DQNetwork, FiLMDQNetwork, ObsDQNetwork, INPUT_DIM, OUTPUT_DIM, OBS_DIM, TASK_DIM
 from dungeon_env import DungeonEnv
 from train import (
     ARCHITECTURES,
     encode_obs,
+    encode_obs_pure,
     ReplayBuffer,
     StratifiedReplayBuffer,
     DQNAgent,
@@ -98,6 +99,38 @@ class TestEncodeObs:
         for i in range(N_SEEDS_DIM):
             expected = 1.0 if i == 3 else 0.0
             assert t[304 + i].item() == expected
+
+
+# ===========================================================================
+# encode_obs_pure
+# ===========================================================================
+
+class TestEncodeObsPure:
+    def test_output_shape(self):
+        assert encode_obs_pure(_dummy_obs()).shape == (OBS_DIM,)
+
+    def test_dtype_is_float32(self):
+        assert encode_obs_pure(_dummy_obs()).dtype == torch.float32
+
+    def test_no_seed_bits(self):
+        """Le tenseur s'arrête après les 4 floats de position — pas de seed one-hot."""
+        t = encode_obs_pure(_dummy_obs())
+        assert t.shape[0] == OBS_DIM
+
+    def test_positions_normalized(self):
+        obs = _dummy_obs(char_pos=(9, 3), exit_pos=(0, 6))
+        t = encode_obs_pure(obs)
+        assert abs(t[300].item() - 9 / 9) < 1e-6
+        assert abs(t[301].item() - 3 / 9) < 1e-6
+        assert abs(t[302].item() - 0 / 9) < 1e-6
+        assert abs(t[303].item() - 6 / 9) < 1e-6
+
+    def test_grid_encoding_matches_encode_obs(self):
+        """Les 304 premiers floats de encode_obs doivent être identiques à encode_obs_pure."""
+        obs = _dummy_obs(grid_val=1, char_pos=(3, 5), exit_pos=(7, 2))
+        t_pure = encode_obs_pure(obs)
+        t_full = encode_obs(obs, seed_idx=2)
+        assert torch.allclose(t_pure, t_full[:OBS_DIM])
 
 
 # ===========================================================================
@@ -283,6 +316,37 @@ class TestDQNAgentArchitecture:
         agent = DQNAgent(arch="taskcond")
         assert isinstance(agent.q_net, DQNetwork)
         assert isinstance(agent.target_net, DQNetwork)
+
+    def test_obs_arch(self):
+        agent = DQNAgent(arch="obs")
+        assert isinstance(agent.q_net, ObsDQNetwork)
+        assert isinstance(agent.target_net, ObsDQNetwork)
+
+    def test_obs_arch_uses_pure_encoder(self):
+        """_encode pour obs doit produire un tenseur de taille OBS_DIM."""
+        agent = DQNAgent(arch="obs")
+        obs = _dummy_obs()
+        t = agent._encode(obs)
+        assert t.shape == (OBS_DIM,)
+
+    def test_film_arch_encoder_produces_input_dim(self):
+        """_encode pour film doit produire un tenseur de taille INPUT_DIM."""
+        agent = DQNAgent(arch="film")
+        t = agent._encode(_dummy_obs())
+        assert t.shape == (INPUT_DIM,)
+
+    def test_obs_train_completes(self, tmp_path):
+        agent = train(episodes=3, seed=42, arch="obs",
+                      log_path=tmp_path / "t.jsonl",
+                      model_dir=tmp_path / "models", verbose=False)
+        assert isinstance(agent.q_net, ObsDQNetwork)
+
+    def test_obs_checkpoint_loadable(self, tmp_path):
+        train(episodes=3, seed=42, arch="obs",
+              log_path=tmp_path / "t.jsonl",
+              model_dir=tmp_path / "models", verbose=False)
+        ObsDQNetwork().load_state_dict(
+            torch.load(tmp_path / "models" / "final.pt", weights_only=True))
 
     def test_invalid_arch_raises(self):
         with pytest.raises(ValueError, match="arch"):
