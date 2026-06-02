@@ -381,6 +381,11 @@ class GameUI:
         root.destroy()
         if not path_str:
             return
+        # Passer en mode simple : effacer l'état multi-model
+        self._ai_trails       = []
+        self._ai_nets_cache   = []
+        self._ai_run_dir      = None
+        self._anim_idx        = -1
         try:
             from exploit import load_model, run_one_episode_info
             self._ai_net = load_model(Path(path_str))
@@ -408,6 +413,9 @@ class GameUI:
         root.destroy()
         if not run_dir_str:
             return
+        # Passer en mode multi : effacer l'état simple-model
+        self._ai_net   = None
+        self._ai_trail = None
         self._ai_run_dir      = Path(run_dir_str)
         self._ai_optimal_path = self._state.optimal_path   # capturé avant le thread
         self._load_multi(self._ai_run_dir, self._current_seed)
@@ -522,6 +530,7 @@ class GameUI:
         - Nouveau terrain + run_dir connu, cache vide → rechargement complet depuis disque.
         - Nouveau terrain + modèle simple → rejoue le modèle simple.
         """
+        self._ai_stats = None   # toujours réinitialiser les stats au restart
         if self._ai_trails:
             self._anim_idx     = -1
             self._anim_last_ms = pygame.time.get_ticks()
