@@ -506,12 +506,55 @@ Vu une fois, généralisé partout. C'est l'inductive bias manquant au MLP.
 5. ~~PPO Stable-Baselines3~~ ✅ (résout catastrophic forgetting, 89% pool10)
 6. ~~UI PPO (.zip)~~ ✅ (load_model, scan_run_dir, animation incrémentale)
 7. ~~evaluate.py (--n-episodes, --stochastic)~~ ✅
-8. ~~PPO pool100 2M ts~~ ✅ (35% training, 3% inconnus det, 13.8% inconnus stoch)
-9. **CNN + PPO** ← prochaine étape sérieuse pour la généralisation
+8. ~~PPO MLP pool100 2M ts~~ ✅ (35% training, 3% inconnus det, 13.8% inconnus stoch)
+9. ~~PPO CNN pool100 2M ts~~ ✅ (76% training, 3% inconnus det, 10.7% inconnus stoch)
+10. **Full random seeds (seed=None)** ← prochaine étape : diversité maximale
 
-### Décision architecturale pour la généralisation
+---
 
-Passer à **CNN + PPO** :
-- Input : grille 10×10 comme tenseur 3 canaux (herbe/roche/eau) + positions en entrée séparée
-- Algorithme : PPO (stable, pas de catastrophic forgetting)
-- Avantage : généralisation spatiale par partage de poids des filtres convolutionnels
+## Session 2026-06-02 (fin) — CNN + PPO pool100
+
+### Tests : 360 tests, 0 échec
+
+### Architecture CNN implémentée
+
+**Nouveaux fichiers / modifications :**
+- `src/train_ppo.py` :
+  - `encode_obs_cnn(obs_dict)` → tenseur `(10,10,5)` : canaux herbe/roche/eau/personnage/sortie
+  - `DungeonCnnExtractor(BaseFeaturesExtractor)` : Conv2D(5→16,3×3)→ReLU→Conv2D(16→32,3×3)→ReLU→Flatten→Linear(1152→128)→ReLU
+  - `DungeonGymEnv(obs_type='mlp'|'cnn')` — rétrocompatible (défaut='mlp')
+  - `train(architecture='mlp'|'cnn')` + `--architecture` CLI
+  - Constantes : `CNN_OBS_SHAPE=(10,10,5)`, `CNN_FEATURES_DIM=128`, `CNN_NET_ARCH=[64]`
+- `src/exploit.py` : `run_one_episode_info_ppo` — auto-détecte CNN via `model.observation_space.shape`
+- `analyze/evaluate.py` : `_run_ppo_episode` — idem (fix : créait toujours env MLP)
+- `tests/test_train_ppo.py` : +17 tests (TestEncodeObsCnn, TestDungeonGymEnvCnn, TestDungeonCnnExtractor, TestTrainCnn)
+- `tests/test_exploit.py` : +3 tests (TestRunOneEpisodeInfoPPOCnn)
+- `tests/test_evaluate.py` : +3 tests (TestEvaluatePPOCnn)
+
+### Résultats PPO CNN pool100 — comparatif complet
+
+| Métrique | MLP pool100 | CNN pool100 | Δ |
+|---|---|---|---|
+| Win rate online final | 56% | **88%** | +32 pts |
+| Training 0–99 — déterministe | 35% | **76%** | +41 pts |
+| Training 0–99 — score moy wins | 94.1 | **96.3** | +2 pts |
+| Inconnus 100–299 — déterministe | 3% | **3%** | = |
+| Inconnus 100–299 — stochastique ×3 | **13.8%** | 10.7% | -3 pts |
+
+### Analyse
+
+Le CNN améliore massivement la mémorisation des seeds vus (+41 pts) mais ne progresse pas
+sur les seeds inconnus (3% = 3%). La généralisation stochastique CNN (10.7%) est même légèrement
+en dessous du MLP (13.8%).
+
+**Diagnostic :** le problème n'est pas l'invariance spatiale (que CNN résout) mais la
+**planification globale** : naviguer vers une cible à travers des obstacles requiert un
+raisonnement sur le chemin complet, que ni MLP ni CNN ne résolvent nativement.
+
+### Pistes pour la généralisation
+
+| Approche | Ce qu'elle apporte | Complexité | Statut |
+|---|---|---|---|
+| **Full random seeds (seed=None)** | Diversité max, force vraie stratégie | Faible | ← prochaine |
+| Attention / Transformer | Raisonnement global sur la grille | Élevée | — |
+| Model-based RL | Planification explicite | Très élevée | — |

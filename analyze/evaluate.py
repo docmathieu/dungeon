@@ -38,10 +38,15 @@ def _parse_seeds(seeds_arg: str) -> list[int]:
 def _run_ppo_episode(model, seed: int, deterministic: bool = True) -> tuple[bool, int]:
     """Joue un épisode avec un modèle PPO SB3. Retourne (won, score).
 
+    Détecte automatiquement l'architecture (MLP ou CNN) via model.observation_space.shape :
+        (304,)     → MLP — encode_obs_pure (304 floats)
+        (10,10,5)  → CNN — encode_obs_cnn  (tenseur 10×10×5)
+
     deterministic=False → politique stochastique (résultats différents à chaque appel).
     """
-    from train_ppo import DungeonGymEnv
-    env = DungeonGymEnv(seed=seed)
+    from train_ppo import DungeonGymEnv, CNN_OBS_SHAPE
+    obs_type = "cnn" if model.observation_space.shape == CNN_OBS_SHAPE else "mlp"
+    env = DungeonGymEnv(seed=seed, obs_type=obs_type)
     obs, _ = env.reset()
     terminated, truncated = False, False
     while not (terminated or truncated):

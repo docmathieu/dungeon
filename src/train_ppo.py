@@ -25,10 +25,13 @@ from collections import deque
 from pathlib import Path
 
 import numpy as np
+import torch
+import torch.nn as nn
 import gymnasium as gym
 from gymnasium import spaces
 from stable_baselines3 import PPO
 from stable_baselines3.common.callbacks import BaseCallback, CheckpointCallback
+from stable_baselines3.common.torch_layers import BaseFeaturesExtractor
 from stable_baselines3.common.vec_env import DummyVecEnv
 
 sys.path.insert(0, os.path.dirname(__file__))
@@ -49,8 +52,87 @@ N_EPOCHS        = 10
 GAMMA           = 0.99
 GAE_LAMBDA      = 0.95
 CLIP_RANGE      = 0.2
-NET_ARCH        = [256, 128, 64]
-CHECKPOINT_FREQ = 50_000  # timesteps entre checkpoints
+NET_ARCH        = [256, 128, 64]   # couches MLP (architecture mlp)
+CNN_NET_ARCH    = [64]             # couches MLP après CNN (architecture cnn)
+CNN_FEATURES_DIM = 128             # dimension de sortie du CNN feature extractor
+CHECKPOINT_FREQ = 50_000           # timesteps entre checkpoints
+
+# Forme de l'observation CNN : grille 10×10 × 5 canaux
+#   Canal 0 = HERBE, 1 = ROCHE, 2 = EAU, 3 = PERSONNAGE, 4 = SORTIE
+CNN_OBS_SHAPE: tuple[int, int, int] = (10, 10, 5)
+
+
+# ---------------------------------------------------------------------------
+# Encodage CNN : grille 10×10×5
+# ---------------------------------------------------------------------------
+
+def encode_obs_cnn(obs_dict: dict) -> np.ndarray:
+    """Encode l'observation en tenseur 10×10×5 pour l'architecture CNN.
+
+    Canaux :
+        0 = HERBE      (1.0 si la case est herbe)
+        1 = ROCHE      (1.0 si la case est roche)
+        2 = EAU        (1.0 si la case est eau)
+        3 = PERSONNAGE (1.0 sur la case du personnage)
+        4 = SORTIE     (1.0 sur la case de la sortie)
+
+    Convention : grid[row, col, channel] avec row=y, col=x.
+    """
+    grid = np.zeros(CNN_OBS_SHAPE, dtype=np.float32)
+    for i, tile in enumerate(obs_dict["grid"]):
+        row, col = i // 10, i % 10
+        grid[row, col, tile] = 1.0
+    cx, cy = obs_dict["char_pos"]
+    ex, ey = obs_dict["exit_pos"]
+    grid[cy, cx, 3] = 1.0
+    grid[ey, ex, 4] = 1.0
+    return grid
+
+
+# ---------------------------------------------------------------------------
+# Extracteur CNN (Stable-Baselines3 BaseFeaturesExtractor)
+# ---------------------------------------------------------------------------
+
+class DungeonCnnExtractor(BaseFeaturesExtractor):
+    """Extracteur de features convolutionnel pour la grille 10×10×5.
+
+    Architecture :
+        Conv2D(5→16, 3×3, stride=1) → ReLU → 8×8×16
+        Conv2D(16→32, 3×3, stride=1) → ReLU → 6×6×32
+        Flatten → 1 152
+        Linear(1 152 → features_dim) → ReLU
+
+    Input  : tenseur (B, 10, 10, 5) — channels last (format SB3)
+    Output : tenseur (B, features_dim)
+    """
+
+    def __init__(
+        self,
+        observation_space: gym.spaces.Box,
+        features_dim: int = CNN_FEATURES_DIM,
+    ) -> None:
+        super().__init__(observation_space, features_dim)
+        n_channels = observation_space.shape[2]   # 5 canaux
+        self.cnn = nn.Sequential(
+            nn.Conv2d(n_channels, 16, kernel_size=3, stride=1, padding=0),
+            nn.ReLU(),
+            nn.Conv2d(16, 32, kernel_size=3, stride=1, padding=0),
+            nn.ReLU(),
+            nn.Flatten(),
+        )
+        # Calcul automatique de la taille de sortie (6×6×32 = 1 152)
+        with torch.no_grad():
+            sample = torch.zeros(1, n_channels, 10, 10)
+            cnn_out_dim = int(self.cnn(sample).shape[1])
+        self.linear = nn.Sequential(
+            nn.Linear(cnn_out_dim, features_dim),
+            nn.ReLU(),
+        )
+
+    def forward(self, observations: torch.Tensor) -> torch.Tensor:
+        # SB3 passe les observations en (B, H, W, C) — on permute en (B, C, H, W)
+        x = observations.permute(0, 3, 1, 2).float()
+        return self.linear(self.cnn(x))
 
 
 # ---------------------------------------------------------------------------
@@ -60,35 +142,51 @@ CHECKPOINT_FREQ = 50_000  # timesteps entre checkpoints
 class DungeonGymEnv(gym.Env):
     """Wrapper gymnasium/SB3 autour de DungeonEnv.
 
-    Observation : vecteur 304 floats (encode_obs_pure — sans seed one-hot).
-    Action      : entier 0–3 → LEFT / RIGHT / UP / DOWN.
+    Deux modes d'observation :
+        obs_type='mlp' (défaut) : vecteur 304 floats (encode_obs_pure)
+        obs_type='cnn'          : tenseur 10×10×5 (encode_obs_cnn)
+
+    Action : entier 0–3 → LEFT / RIGHT / UP / DOWN.
     """
 
-    OBS_DIM = 304
+    OBS_DIM      = 304
+    OBS_SHAPE_CNN = CNN_OBS_SHAPE   # (10, 10, 5)
 
-    def __init__(self, seed: int | None = None, seed_pool: list[int] | None = None):
+    def __init__(
+        self,
+        seed:      int | None       = None,
+        seed_pool: list[int] | None = None,
+        obs_type:  str              = "mlp",
+    ):
         super().__init__()
-        self.observation_space = spaces.Box(
-            low=0.0, high=1.0, shape=(self.OBS_DIM,), dtype=np.float32
-        )
+        self._obs_type = obs_type
+        if obs_type == "cnn":
+            self.observation_space = spaces.Box(
+                low=0.0, high=1.0, shape=self.OBS_SHAPE_CNN, dtype=np.float32
+            )
+        else:
+            self.observation_space = spaces.Box(
+                low=0.0, high=1.0, shape=(self.OBS_DIM,), dtype=np.float32
+            )
         self.action_space = spaces.Discrete(len(ACTIONS))
         self._env = DungeonEnv(seed=seed, seed_pool=seed_pool, max_steps=MAX_STEPS)
 
     def reset(self, *, seed: int | None = None, options: dict | None = None):
         obs_dict = self._env.reset()
-        return self._encode(obs_dict), {}
+        obs = encode_obs_cnn(obs_dict) if self._obs_type == "cnn" else self._encode(obs_dict)
+        return obs, {}
 
     def step(self, action: int):
         obs_dict, reward, done, info = self._env.step(ACTIONS[int(action)])
-        obs            = self._encode(obs_dict)
-        terminated     = bool(info["won"])
-        truncated      = done and not terminated
-        info["seed"]   = self._env.current_seed
+        obs        = encode_obs_cnn(obs_dict) if self._obs_type == "cnn" else self._encode(obs_dict)
+        terminated = bool(info["won"])
+        truncated  = done and not terminated
+        info["seed"] = self._env.current_seed
         return obs, float(reward), terminated, truncated, info
 
     @staticmethod
     def _encode(obs_dict: dict) -> np.ndarray:
-        """Encode l'observation en 304 floats (identique à encode_obs_pure)."""
+        """Encode l'observation en 304 floats — architecture MLP (encode_obs_pure)."""
         one_hot = np.zeros(300, dtype=np.float32)
         for i, tile in enumerate(obs_dict["grid"]):
             one_hot[i * 3 + tile] = 1.0
@@ -191,12 +289,20 @@ def _now() -> str:
     return time.strftime("%Y%m%d_%H%M")
 
 
-def _run_label(seed: int | None, seed_pool: list[int] | None) -> str:
+def _run_label(
+    seed:         int | None,
+    seed_pool:    list[int] | None,
+    architecture: str = "mlp",
+) -> str:
     if seed_pool is not None:
-        return f"ppo_pool{len(seed_pool)}"
-    if seed is not None:
-        return f"ppo_seed{seed}"
-    return "ppo_random"
+        label = f"ppo_pool{len(seed_pool)}"
+    elif seed is not None:
+        label = f"ppo_seed{seed}"
+    else:
+        label = "ppo_random"
+    if architecture == "cnn":
+        label += "_cnn"
+    return label
 
 
 # ---------------------------------------------------------------------------
@@ -204,27 +310,40 @@ def _run_label(seed: int | None, seed_pool: list[int] | None) -> str:
 # ---------------------------------------------------------------------------
 
 def train(
-    timesteps:  int                  = TIMESTEPS,
-    seed:       int | None           = None,
-    seed_pool:  list[int] | None     = None,
-    lr:         float                = LEARNING_RATE,
-    n_envs:     int                  = N_ENVS,
-    pretrained: Path | None          = None,
-    log_path:   Path                 = Path("logs/train_ppo.jsonl"),
-    model_dir:  Path                 = Path("models/ppo"),
-    verbose:    bool                 = True,
+    timesteps:    int                  = TIMESTEPS,
+    seed:         int | None           = None,
+    seed_pool:    list[int] | None     = None,
+    lr:           float                = LEARNING_RATE,
+    n_envs:       int                  = N_ENVS,
+    pretrained:   Path | None          = None,
+    log_path:     Path                 = Path("logs/train_ppo.jsonl"),
+    model_dir:    Path                 = Path("models/ppo"),
+    architecture: str                  = "mlp",
+    verbose:      bool                 = True,
 ) -> PPO:
-    """Entraîne un agent PPO. Retourne le modèle SB3 entraîné."""
+    """Entraîne un agent PPO. Retourne le modèle SB3 entraîné.
+
+    architecture : 'mlp' (défaut) — réseau dense 304 → 256 → 128 → 64 → 4
+                   'cnn'          — CNN 10×10×5 → features 128 → MLP 64 → 4
+    """
     log_path.parent.mkdir(parents=True, exist_ok=True)
     model_dir.mkdir(parents=True, exist_ok=True)
 
+    obs_type = "cnn" if architecture == "cnn" else "mlp"
     env_fns = [
-        (lambda s=seed, sp=seed_pool: DungeonGymEnv(seed=s, seed_pool=sp))
+        (lambda s=seed, sp=seed_pool, ot=obs_type: DungeonGymEnv(seed=s, seed_pool=sp, obs_type=ot))
         for _ in range(n_envs)
     ]
     env = DummyVecEnv(env_fns)
 
-    policy_kwargs = dict(net_arch=NET_ARCH)
+    if architecture == "cnn":
+        policy_kwargs = dict(
+            features_extractor_class=DungeonCnnExtractor,
+            features_extractor_kwargs=dict(features_dim=CNN_FEATURES_DIM),
+            net_arch=CNN_NET_ARCH,
+        )
+    else:
+        policy_kwargs = dict(net_arch=NET_ARCH)
 
     if pretrained is not None:
         model = PPO.load(str(pretrained), env=env, learning_rate=lr)
@@ -271,18 +390,20 @@ def train(
 
 def _parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="Entraînement PPO — Dungeon POC")
-    p.add_argument("--timesteps",  type=int,   default=TIMESTEPS,
+    p.add_argument("--timesteps",    type=int,   default=TIMESTEPS,
                    help=f"Nombre de timesteps (défaut : {TIMESTEPS})")
-    p.add_argument("--seed",       type=int,   default=None,
+    p.add_argument("--seed",         type=int,   default=None,
                    help="Seed fixe — même terrain à chaque épisode")
-    p.add_argument("--seed-pool",  type=str,   default=None,
+    p.add_argument("--seed-pool",    type=str,   default=None,
                    help="Pool de seeds, ex : 0,1,2,3 ou plage 0-99")
-    p.add_argument("--lr",         type=float, default=LEARNING_RATE,
+    p.add_argument("--lr",           type=float, default=LEARNING_RATE,
                    help=f"Learning rate (défaut : {LEARNING_RATE})")
-    p.add_argument("--n-envs",     type=int,   default=N_ENVS,
+    p.add_argument("--n-envs",       type=int,   default=N_ENVS,
                    help=f"Nombre d'environnements parallèles (défaut : {N_ENVS})")
-    p.add_argument("--pretrained", type=Path,  default=None,
+    p.add_argument("--pretrained",   type=Path,  default=None,
                    help="Checkpoint .zip SB3 à utiliser comme point de départ")
+    p.add_argument("--architecture", choices=["mlp", "cnn"], default="mlp",
+                   help="Architecture réseau : mlp (défaut) ou cnn")
     return p.parse_args()
 
 
@@ -298,17 +419,18 @@ if __name__ == "__main__":
     args  = _parse_args()
     pool  = _parse_pool(args.seed_pool) if args.seed_pool else None
     ts    = _now()
-    label = _run_label(args.seed, pool)
+    label = _run_label(args.seed, pool, architecture=args.architecture)
     run   = f"{ts}_{label}_ts{args.timesteps}"
     run_dir = f"{ts}_run"
 
     train(
-        timesteps  = args.timesteps,
-        seed       = args.seed,
-        seed_pool  = pool,
-        lr         = args.lr,
-        n_envs     = args.n_envs,
-        pretrained = args.pretrained,
-        log_path   = Path("logs")   / run_dir / f"{run}.jsonl",
-        model_dir  = Path("models") / run_dir / run,
+        timesteps    = args.timesteps,
+        seed         = args.seed,
+        seed_pool    = pool,
+        lr           = args.lr,
+        n_envs       = args.n_envs,
+        pretrained   = args.pretrained,
+        architecture = args.architecture,
+        log_path     = Path("logs")   / run_dir / f"{run}.jsonl",
+        model_dir    = Path("models") / run_dir / run,
     )

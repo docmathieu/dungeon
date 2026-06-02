@@ -145,21 +145,49 @@ La limite est **architecturale** : le MLP ne capte pas les invariances spatiales
 
 ---
 
-## Limite MLP et prochaine étape : CNN + PPO (2026-06-02)
+## CNN + PPO pool100 (2026-06-02) ✅
 
-**Pourquoi le MLP ne généralise pas :**
-- Le MLP reçoit 300 features indépendantes (grille 10×10×3 aplatie)
-- Chaque position utilise des poids distincts → apprendre "obstacle en (2,3)" ≠ "obstacle en (7,8)"
-- Nécessite des milliers de grilles différentes pour couvrir l'espace des configurations
+`src/train_ppo.py --architecture cnn` — CNN convolutionnel sur grille 10×10×5.
 
-**Ce qu'apporte CNN :**
-- Un filtre convolutionnel 3×3 s'applique à toutes les positions avec les mêmes poids
-- Invariance spatiale par construction : vu en (2,3), généralisé en (7,8)
-- Même architecture input/output, mais traitement spatial au lieu de liste plate
+**Architecture DungeonCnnExtractor :**
+- Input : tenseur (10,10,5) — 5 canaux : herbe/roche/eau/personnage/sortie
+- Conv2D(5→16, 3×3) → 8×8×16 → Conv2D(16→32, 3×3) → 6×6×32 → Flatten → Linear(1152→128)
+- Puis MLP [64] → 4 sorties (Q-values via PPO)
 
-**Architecture cible : CNN + PPO**
-- PPO : résout catastrophic forgetting (✅ déjà prouvé)
-- CNN : résout généralisation spatiale (← prochaine implémentation)
+```bash
+.venv\Scripts\python.exe src\train_ppo.py --timesteps 2000000 --seed-pool 0-99 --architecture cnn
+```
+
+**Résultats CNN pool100 vs MLP pool100 :**
+
+| Métrique | MLP | CNN | Δ |
+|---|---|---|---|
+| Win rate online final | 56% | **88%** | +32 pts |
+| Training 0–99, déterministe | 35% | **76%** | +41 pts |
+| Inconnus 100–299, déterministe | 3% | 3% | = |
+| Inconnus 100–299, stochastique ×3 | **13.8%** | 10.7% | -3 pts |
+
+**Conclusion :** CNN améliore massivement la mémorisation des seeds vus mais ne progresse pas
+sur les seeds inconnus. Le vrai verrou est la **planification globale**, pas l'invariance spatiale.
+Ni MLP ni CNN ne résolvent "comment relier ma position à la sortie à travers les obstacles".
+
+**Auto-détection architecture** dans `exploit.py` et `evaluate.py` via `model.observation_space.shape` :
+- `(304,)` → MLP
+- `(10,10,5)` → CNN
+
+Les anciennes runs MLP restent 100% utilisables (rétrocompatibilité).
+
+---
+
+## Prochaine étape : Full random seeds
+
+```bash
+.venv\Scripts\python.exe src\train_ppo.py --timesteps 2000000 --architecture cnn
+# (sans --seed ni --seed-pool → nouveau terrain à chaque épisode)
+```
+
+Forcer la diversité maximale : l'agent ne peut pas mémoriser, il **doit** apprendre une stratégie.
+Métrique clé : win rate sur seeds 100–299 (déterministe + stochastique).
 
 ---
 

@@ -243,16 +243,32 @@ MLP ne peut maintenir les deux politiques simultanément sans mécanisme explici
 
 ### Agent : train-ppo ✅ *(Phase 2 — PPO)*
 **Fichier** : `src/train_ppo.py`
-**Tests** : `tests/test_train_ppo.py` (33 tests)
+**Tests** : `tests/test_train_ppo.py` (50 tests)
 
 Entraînement PPO via Stable-Baselines3 — résout le catastrophic forgetting multi-seeds.
 
 ```bash
 python src/train_ppo.py --timesteps 500000 --seed-pool 0,1,2,3,4,5,6,7,8,9
 python src/train_ppo.py --timesteps 200000 --seed 0
-python src/train_ppo.py --timesteps 500000 --seed-pool 0-99 --n-envs 4
+python src/train_ppo.py --timesteps 2000000 --seed-pool 0-99 --architecture cnn
 python src/train_ppo.py --timesteps 500000 --seed-pool 0,...,9 --pretrained models/.../final.zip
 ```
+
+**Architecture `--architecture` :**
+- `mlp` (défaut) : MLP dense 304→256→128→64→4 — observation 304 floats
+- `cnn` : CNN 10×10×5 + MLP 64→4 — observation tenseur spatial 5 canaux
+
+**Encodage CNN (`CNN_OBS_SHAPE = (10,10,5)`) :**
+- Canal 0 = HERBE, 1 = ROCHE, 2 = EAU, 3 = PERSONNAGE, 4 = SORTIE
+- `encode_obs_cnn(obs_dict)` → `np.ndarray (10,10,5)`
+
+**`DungeonCnnExtractor` :**
+- Conv2D(5→16, 3×3) → ReLU → 8×8×16
+- Conv2D(16→32, 3×3) → ReLU → 6×6×32
+- Flatten → 1 152 → Linear → 128 → ReLU
+
+**`DungeonGymEnv(obs_type='mlp'|'cnn')` :** rétrocompatible, défaut='mlp'.
+Auto-détection dans `exploit.py` et `evaluate.py` via `model.observation_space.shape`.
 
 **`DungeonGymEnv(gym.Env)`** — wrapper gymnasium/SB3 :
 - `observation_space = Box(0, 1, shape=(304,))` — même encodage que `encode_obs_pure`
@@ -412,7 +428,10 @@ vu une fois en (2,3), généralisé en (7,8) automatiquement. L'inductive bias s
 | "Obstacle à droite" | 100 règles (une par position) | 1 filtre partagé |
 | Généralisation | Nécessite beaucoup de seeds | Automatique |
 
-**Architecture cible : CNN + PPO** (PPO résout le catastrophic forgetting, CNN résout la généralisation).
+**Résultat CNN pool100 (2026-06-02) :**
+- CNN améliore massivement la mémorisation (+41 pts training) mais pas la généralisation (3% = 3%)
+- Le vrai blocage est la planification globale, pas l'invariance spatiale
+- Prochaine piste : `--seed None` (full random) pour forcer une vraie stratégie générale
 
 ### `analyze/search_seeds.py`
 **Objectif** : trouver 20 seeds pédagogiquement intéressants pour le curriculum RL.

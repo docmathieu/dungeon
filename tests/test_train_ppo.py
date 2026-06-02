@@ -5,11 +5,16 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+import torch
 import gymnasium as gym
 from gymnasium import spaces
 
 from dungeon_env import DungeonEnv, ACTIONS, MAX_STEPS
-from train_ppo import DungeonGymEnv, train
+from train_ppo import (
+    DungeonGymEnv, train,
+    encode_obs_cnn, DungeonCnnExtractor,
+    CNN_OBS_SHAPE, CNN_FEATURES_DIM,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -259,3 +264,170 @@ class TestTrainPPO:
 
 # Import nécessaire pour test_final_model_loadable
 from stable_baselines3.common.vec_env import DummyVecEnv
+
+
+# ===========================================================================
+# encode_obs_cnn — encodage grille 10×10×5
+# ===========================================================================
+
+class TestEncodeObsCnn:
+    def _obs_dict(self, seed: int = 0) -> dict:
+        env = DungeonGymEnv(seed=seed)
+        return env._env.reset()
+
+    def test_shape(self):
+        result = encode_obs_cnn(self._obs_dict())
+        assert result.shape == CNN_OBS_SHAPE
+
+    def test_dtype(self):
+        result = encode_obs_cnn(self._obs_dict())
+        assert result.dtype == np.float32
+
+    def test_values_in_bounds(self):
+        result = encode_obs_cnn(self._obs_dict())
+        assert result.min() >= 0.0
+        assert result.max() <= 1.0
+
+    def test_tile_channels_one_hot(self):
+        """Chaque case a exactement un canal tile actif (herbe/roche/eau)."""
+        result = encode_obs_cnn(self._obs_dict())
+        tile_sum = result[:, :, :3].sum(axis=2)
+        assert np.all(tile_sum == 1.0)
+
+    def test_char_channel_single_one(self):
+        """Canal 3 (personnage) : exactement une case à 1."""
+        result = encode_obs_cnn(self._obs_dict())
+        assert result[:, :, 3].sum() == 1.0
+
+    def test_exit_channel_single_one(self):
+        """Canal 4 (sortie) : exactement une case à 1."""
+        result = encode_obs_cnn(self._obs_dict())
+        assert result[:, :, 4].sum() == 1.0
+
+    def test_char_position_correct(self):
+        """Canal 3 vaut 1.0 exactement à la position du personnage."""
+        obs_dict = self._obs_dict(seed=42)
+        result = encode_obs_cnn(obs_dict)
+        cx, cy = obs_dict["char_pos"]
+        assert result[cy, cx, 3] == 1.0
+
+    def test_exit_position_correct(self):
+        """Canal 4 vaut 1.0 exactement à la position de la sortie."""
+        obs_dict = self._obs_dict(seed=42)
+        result = encode_obs_cnn(obs_dict)
+        ex, ey = obs_dict["exit_pos"]
+        assert result[ey, ex, 4] == 1.0
+
+    def test_deterministic_same_seed(self):
+        result1 = encode_obs_cnn(self._obs_dict(seed=7))
+        result2 = encode_obs_cnn(self._obs_dict(seed=7))
+        assert np.array_equal(result1, result2)
+
+
+# ===========================================================================
+# DungeonGymEnv — architecture CNN
+# ===========================================================================
+
+class TestDungeonGymEnvCnn:
+    def test_obs_space_shape_cnn(self):
+        env = DungeonGymEnv(seed=0, obs_type="cnn")
+        assert env.observation_space.shape == CNN_OBS_SHAPE
+
+    def test_obs_space_dtype_cnn(self):
+        env = DungeonGymEnv(seed=0, obs_type="cnn")
+        assert env.observation_space.dtype == np.float32
+
+    def test_reset_returns_cnn_shape(self):
+        env = DungeonGymEnv(seed=0, obs_type="cnn")
+        obs, _ = env.reset()
+        assert obs.shape == CNN_OBS_SHAPE
+
+    def test_step_returns_cnn_shape(self):
+        env = DungeonGymEnv(seed=0, obs_type="cnn")
+        env.reset()
+        obs, *_ = env.step(0)
+        assert obs.shape == CNN_OBS_SHAPE
+
+    def test_default_obs_type_is_mlp(self):
+        """obs_type par défaut = 'mlp' — rétrocompatibilité."""
+        env = DungeonGymEnv(seed=0)
+        obs, _ = env.reset()
+        assert obs.shape == (DungeonGymEnv.OBS_DIM,)
+
+    def test_mlp_obs_type_explicit(self):
+        env = DungeonGymEnv(seed=0, obs_type="mlp")
+        obs, _ = env.reset()
+        assert obs.shape == (DungeonGymEnv.OBS_DIM,)
+
+    def test_cnn_obs_in_bounds(self):
+        env = DungeonGymEnv(seed=0, obs_type="cnn")
+        obs, _ = env.reset()
+        assert obs.min() >= 0.0 and obs.max() <= 1.0
+
+
+# ===========================================================================
+# DungeonCnnExtractor — architecture et forward
+# ===========================================================================
+
+class TestDungeonCnnExtractor:
+    def _obs_space(self) -> gym.spaces.Box:
+        return gym.spaces.Box(0.0, 1.0, shape=CNN_OBS_SHAPE, dtype=np.float32)
+
+    def test_instantiation(self):
+        extractor = DungeonCnnExtractor(self._obs_space())
+        assert extractor.features_dim == CNN_FEATURES_DIM
+
+    def test_custom_features_dim(self):
+        extractor = DungeonCnnExtractor(self._obs_space(), features_dim=64)
+        assert extractor.features_dim == 64
+
+    def test_forward_output_shape(self):
+        extractor = DungeonCnnExtractor(self._obs_space())
+        # batch de 3 observations (B, H, W, C)
+        x = torch.zeros(3, *CNN_OBS_SHAPE)
+        out = extractor(x)
+        assert out.shape == (3, CNN_FEATURES_DIM)
+
+    def test_forward_single_obs(self):
+        extractor = DungeonCnnExtractor(self._obs_space())
+        x = torch.zeros(1, *CNN_OBS_SHAPE)
+        out = extractor(x)
+        assert out.shape == (1, CNN_FEATURES_DIM)
+
+    def test_forward_no_nan(self):
+        extractor = DungeonCnnExtractor(self._obs_space())
+        x = torch.rand(2, *CNN_OBS_SHAPE)
+        out = extractor(x)
+        assert not torch.isnan(out).any()
+
+
+# ===========================================================================
+# train() — architecture CNN (smoke test)
+# ===========================================================================
+
+class TestTrainCnn:
+    def test_train_cnn_produces_final_zip(self, tmp_path):
+        model_dir = tmp_path / "models"
+        train(
+            timesteps=512,
+            seed=0,
+            architecture="cnn",
+            log_path=tmp_path / "ppo_cnn.jsonl",
+            model_dir=model_dir,
+            verbose=False,
+        )
+        assert (model_dir / "final.zip").exists()
+
+    def test_train_cnn_model_loadable(self, tmp_path):
+        from stable_baselines3 import PPO as SB3PPO
+        model_dir = tmp_path / "models"
+        train(
+            timesteps=512,
+            seed=0,
+            architecture="cnn",
+            log_path=tmp_path / "ppo_cnn.jsonl",
+            model_dir=model_dir,
+            verbose=False,
+        )
+        loaded = SB3PPO.load(str(model_dir / "final"))
+        assert loaded.observation_space.shape == CNN_OBS_SHAPE

@@ -32,6 +32,23 @@ def _save_ppo(tmp_dir: Path) -> Path:
     return tmp_dir / "final.zip"
 
 
+def _save_ppo_cnn(tmp_dir: Path) -> Path:
+    from stable_baselines3 import PPO
+    from train_ppo import DungeonGymEnv, DungeonCnnExtractor, CNN_FEATURES_DIM
+    env = DungeonGymEnv(seed=0, obs_type="cnn")
+    policy_kwargs = dict(
+        features_extractor_class=DungeonCnnExtractor,
+        features_extractor_kwargs=dict(features_dim=CNN_FEATURES_DIM),
+        net_arch=[64],
+    )
+    model = PPO("MlpPolicy", env, verbose=0, n_steps=64, batch_size=32,
+                policy_kwargs=policy_kwargs)
+    out = tmp_dir / "final_cnn"
+    model.save(str(out))
+    env.close()
+    return tmp_dir / "final_cnn.zip"
+
+
 # ===========================================================================
 # _parse_seeds — parsing de la liste de seeds
 # ===========================================================================
@@ -168,3 +185,30 @@ class TestEvaluatePPO:
         r_det  = evaluate(path, seeds=[0], stochastic=False)
         r_sto  = evaluate(path, seeds=[0], stochastic=True)
         assert set(r_det.keys()) == set(r_sto.keys())
+
+
+# ===========================================================================
+# evaluate — PPO CNN (auto-détection obs_type)
+# ===========================================================================
+
+class TestEvaluatePPOCnn:
+    def test_cnn_returns_valid_metrics(self, tmp_path):
+        """evaluate() gère automatiquement un modèle CNN."""
+        path = _save_ppo_cnn(tmp_path)
+        result = evaluate(path, seeds=[0, 1, 2])
+        assert 0.0 <= result["win_rate"] <= 100.0
+        assert result["total_episodes"] == 3
+
+    def test_cnn_deterministic_same_result_twice(self, tmp_path):
+        """PPO CNN déterministe : même résultat sur deux runs."""
+        path = _save_ppo_cnn(tmp_path)
+        r1 = evaluate(path, seeds=[0], n_episodes=1)
+        r2 = evaluate(path, seeds=[0], n_episodes=1)
+        assert r1["wins"] == r2["wins"]
+        assert r1["score_mean_all"] == r2["score_mean_all"]
+
+    def test_cnn_stochastic_runs_without_error(self, tmp_path):
+        path = _save_ppo_cnn(tmp_path)
+        result = evaluate(path, seeds=[0], n_episodes=2, stochastic=True)
+        assert isinstance(result["win_rate"], float)
+        assert result["total_episodes"] == 2
