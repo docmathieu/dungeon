@@ -490,35 +490,39 @@ class GameUI:
         """Rejoue tous les modèles en cache sur un nouveau seed, sans relire le disque."""
         if not self._ai_nets_cache or self._loading_progress is not None:
             return
-        self._ai_trails       = []
-        self._anim_idx        = -1
-        self._ai_stats        = None   # réinitialisé avant le calcul
-        self._ai_optimal_path = self._state.optimal_path   # capturé avant le thread
+        self._ai_trails        = []
+        self._anim_idx         = -1
+        self._ai_stats         = None   # réinitialisé avant le calcul
+        self._ai_optimal_path  = self._state.optimal_path   # capturé avant le thread
+        self._loading_progress = 0.0   # active le loader dès le clic
 
         def _rerun() -> None:
             from exploit import run_one_episode_info
             try:
+                n = len(self._ai_nets_cache)
                 trails: list[dict] = []
                 wins = 0
                 scores_sum = 0
-                for entry in self._ai_nets_cache:
+                for i, entry in enumerate(self._ai_nets_cache):
                     trail, won, score = run_one_episode_info(entry["net"], seed=seed)
                     if won:
                         wins      += 1
                         scores_sum += score
                     trails.append({"trail": trail, "color": entry["color"],
                                    "alpha": entry["alpha"], "stage_idx": entry["stage_idx"]})
-                n_total = len(self._ai_nets_cache)
-                self._ai_stats = {
-                    "wins":     wins,
-                    "note_moy": scores_sum / n_total if n_total > 0 else 0.0,
-                    "total":    n_total,
-                }
-                self._ai_trails    = trails
-                self._anim_idx     = -1
-                self._anim_last_ms = pygame.time.get_ticks()
+                    # Mise à jour incrémentale — trails et stats visibles au fur et à mesure
+                    self._ai_trails        = list(trails)
+                    self._loading_progress = (i + 1) / n
+                    self._ai_stats = {
+                        "wins":     wins,
+                        "note_moy": scores_sum / (i + 1),
+                        "total":    i + 1,
+                    }
+                self._anim_idx = -1   # relance l'animation depuis le début
             except Exception as exc:
                 print(f"[IA restart multi] Erreur : {exc}")
+            finally:
+                self._loading_progress = None   # retire le loader
 
         threading.Thread(target=_rerun, daemon=True).start()
 
@@ -539,19 +543,29 @@ class GameUI:
         elif self._ai_run_dir is not None:
             self._load_multi(self._ai_run_dir, self._current_seed)
         elif self._ai_net is not None:
-            self._ai_stats = None   # réinitialisé avant le calcul
-            try:
-                from exploit import run_one_episode_info
-                trail, won, score = run_one_episode_info(self._ai_net, seed=self._current_seed)
-                self._ai_trail        = trail
-                self._ai_optimal_path = self._state.optimal_path
-                self._ai_stats = {
-                    "wins":     1 if won else 0,
-                    "note_moy": score if won else 0,
-                    "total":    1,
-                }
-            except Exception as exc:
-                print(f"[IA restart] Erreur : {exc}")
+            # Lance l'épisode en thread pour ne pas bloquer l'UI
+            self._loading_progress = 0.5   # loader indéterminé (épisode unique)
+            net     = self._ai_net
+            seed    = self._current_seed
+            optimal = self._state.optimal_path
+
+            def _run_simple_async() -> None:
+                try:
+                    from exploit import run_one_episode_info
+                    trail, won, score = run_one_episode_info(net, seed=seed)
+                    self._ai_trail        = trail
+                    self._ai_optimal_path = optimal
+                    self._ai_stats = {
+                        "wins":     1 if won else 0,
+                        "note_moy": score if won else 0,
+                        "total":    1,
+                    }
+                except Exception as exc:
+                    print(f"[IA restart] Erreur : {exc}")
+                finally:
+                    self._loading_progress = None   # retire le loader
+
+            threading.Thread(target=_run_simple_async, daemon=True).start()
 
     # ------------------------------------------------------------------
     def _handle_event(self, event: pygame.event.Event) -> None:
