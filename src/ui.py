@@ -331,11 +331,16 @@ class GameUI:
         # [IA restart]
         can_restart = (bool(self._ai_trails) or bool(self._ai_nets_cache)
                        or self._ai_net is not None or self._ai_run_dir is not None)
-        rst_col = CYAN if can_restart else GREY
+        rst_col = CYAN if (can_restart and not loading) else GREY
         ai_restart_rect = pygame.Rect(254, row2_y, 90, 28)
         pygame.draw.rect(self._screen, DARK, ai_restart_rect)
         pygame.draw.rect(self._screen, rst_col, ai_restart_rect, 1)
-        self._label("IA restart", ai_restart_rect.x + 4, ai_restart_rect.y + 6, rst_col)
+        if loading:
+            dots = "." * ((pygame.time.get_ticks() // 400) % 4)
+            rst_label = f"Calcul{dots}"
+        else:
+            rst_label = "IA restart"
+        self._label(rst_label, ai_restart_rect.x + 4, ai_restart_rect.y + 6, rst_col)
         self._ai_restart_rect = ai_restart_rect
 
         # ── Ligne 3 : trail info + statistiques IA ───────────────────────
@@ -626,7 +631,8 @@ class GameUI:
                 self._handle_event(event)
 
             # Avancement automatique de l'animation multi-trails
-            if self._ai_trails and self._anim_idx < len(self._ai_trails) - 1:
+            if (self._ai_trails and self._anim_idx < len(self._ai_trails) - 1
+                    and self._loading_progress is None):
                 now = pygame.time.get_ticks()
                 if self._anim_idx == -1 or now - self._anim_last_ms >= ANIM_INTERVAL_MS:
                     self._anim_idx    += 1

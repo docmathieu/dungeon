@@ -555,6 +555,66 @@ raisonnement sur le chemin complet, que ni MLP ni CNN ne résolvent nativement.
 
 | Approche | Ce qu'elle apporte | Complexité | Statut |
 |---|---|---|---|
-| **Full random seeds (seed=None)** | Diversité max, force vraie stratégie | Faible | ← prochaine |
+| **Full random seeds (seed=None)** | Diversité max, force vraie stratégie | Faible | ✅ fait |
 | Attention / Transformer | Raisonnement global sur la grille | Élevée | — |
 | Model-based RL | Planification explicite | Très élevée | — |
+
+---
+
+## Session 2026-06-02 — CNN full-random : percée majeure
+
+### Résultats (run CNN seed=None, 2M timesteps)
+
+| Métrique | MLP pool100 | CNN pool100 | **CNN full-random** |
+|---|---|---|---|
+| Win rate online final | 56% | 88% | 34% |
+| Seeds 0–99, déterministe | 35% | 76% | **8%** |
+| Inconnus 100–299, déterministe | 3% | 3% | **10.5%** (+3.5×) |
+| Inconnus 100–299, stochastique ×3 | 13.8% | 10.7% | **32.2%** (+2.3×) |
+| Score moy wins (inconnus stoch) | 41.5 | 46.7 | 50.4 |
+
+### Analyse
+
+**La vraie percée :** full-random généralise 3× mieux que les modèles pool fixe.
+10.5% déterministe et 32.2% stochastique sur seeds jamais vus (vs 3% et ~11% pour pool fixe).
+
+**Observation clé :** seeds 0–99 (8%) ≈ seeds 100–299 (10.5%) — le modèle ne distingue plus
+"vu" vs "non vu". C'est de la vraie généralisation. Pour CNN pool100, l'écart était 76% vs 3%.
+
+**Coût :** seulement 8% déterministe sur seed fixe (vs 76% CNN pool100). Normal : il navigue
+au lieu de mémoriser.
+
+**Conclusion définitive :** ce n'était pas une question d'architecture (MLP vs CNN) — c'était
+une question de **diversité des données d'entraînement**. Full-random force une vraie stratégie
+de navigation. Pool fixe → mémorisation.
+
+### Roadmap RL — état mis à jour
+1. DungeonEnv ✅
+2. Entraînement DQN ✅
+3. Task-conditioning / FiLM / ObsDQNetwork ✅
+4. Visualisation pygame ✅
+5. PPO Stable-Baselines3 ✅ — percée : 89% max, pas de catastrophic forgetting
+6. UI PPO (.zip) ✅
+7. evaluate.py (--n-episodes, --stochastic) ✅
+8. PPO MLP pool100 2M ts ✅ — 35% training, 3% inconnus det
+9. PPO CNN pool100 2M ts ✅ — 76% training, 3% inconnus det
+10. **PPO CNN full-random 2M ts ✅** — 8% training, **10.5% inconnus det, 32.2% stoch** ← percée
+11. **Continuer entraînement CNN full-random → objectif >90% win rate** ← prochaine session
+
+---
+
+## Session 2026-06-02 (UI) — Corrections bouton "IA restart"
+
+### Bug : animation jouée deux fois
+Pendant `_rerun_from_cache`, les trails s'ajoutaient à `_ai_trails` incrémentalement.
+La boucle `run()` avançait `_anim_idx` dès le premier trail (condition `_anim_idx == -1`).
+En fin de thread : `_anim_idx = -1` était réassigné + `_loading_progress = None`
+→ la boucle relançait l'animation depuis le début → **double passage**.
+
+**Fix** (`run()`) : ajout de `and self._loading_progress is None` dans la condition d'avancement.
+Le chargement se fait silencieusement, l'animation joue une seule fois proprement après.
+
+### Loader "Calcul..." animé sur le bouton
+Pendant le chargement, le bouton "IA restart" affiche un texte cyclique `"Calcul."` / `"Calcul.."` /
+`"Calcul..."` / `"Calcul"` (rotation toutes les 400ms via `pygame.time.get_ticks() // 400 % 4`).
+Revient à `"IA restart"` dès que `_loading_progress is None`. Bouton GREY pendant loading.
