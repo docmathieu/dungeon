@@ -305,9 +305,22 @@ class TestCurrentSeed:
             env.reset()
             assert env.current_seed in pool
 
-    def test_random_mode_returns_none(self):
+    def test_random_mode_returns_int(self):
+        """En mode full-random, current_seed est un entier (pas None) après reset()."""
         env = DungeonEnv(seed=None)
         env.reset()
+        assert isinstance(env.current_seed, int)
+
+    def test_random_mode_seed_changes_each_reset(self):
+        """En mode full-random, current_seed change (presque toujours) entre deux resets."""
+        env = DungeonEnv(seed=None)
+        seeds = {env.reset() and env.current_seed for _ in range(10)}
+        # Avec 10 resets sur un espace de 10^6, on attend plusieurs valeurs distinctes
+        assert len(seeds) > 1
+
+    def test_random_mode_seed_is_none_before_reset(self):
+        """current_seed est None tant que reset() n'a pas été appelé."""
+        env = DungeonEnv(seed=None)
         assert env.current_seed is None
 
     def test_consistent_with_seed_idx(self):

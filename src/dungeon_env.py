@@ -60,8 +60,9 @@ class DungeonEnv:
         self._max_steps       = max_steps
         self._state: GameState | None = None
         self._steps: int      = 0
-        self._rng             = random.Random()   # utilisé uniquement pour les tirages seed_pool
+        self._rng             = random.Random()   # tirage seed_pool et seeds aléatoires
         self._current_seed_idx: int = 0           # index dans seed_pool du dernier reset()
+        self._effective_seed: int | None = None   # seed effectif du dernier épisode
 
     # ------------------------------------------------------------------
     def reset(self) -> dict:
@@ -123,19 +124,24 @@ class DungeonEnv:
         """Valeur du seed utilisé pour l'épisode courant.
 
         Retourne la valeur effective du seed (ex. 42), pas son index dans le pool.
-        None si le mode est full-random (seed=None et pas de pool).
+        En mode full-random (seed=None, pas de pool), retourne le seed aléatoire
+        généré à chaque reset() — jamais None après un reset().
+        None uniquement avant le premier reset().
         """
-        if self._seed_pool is not None:
-            return self._seed_pool[self._current_seed_idx]
-        return self._seed
+        return self._effective_seed
 
     def _pick_seed(self) -> int | None:
-        """Choisit le seed pour le prochain épisode et met à jour current_seed_idx."""
+        """Choisit le seed pour le prochain épisode, stocke dans _effective_seed."""
         if self._seed_pool is not None:
             self._current_seed_idx = self._rng.randrange(len(self._seed_pool))
-            return self._seed_pool[self._current_seed_idx]
-        self._current_seed_idx = 0
-        return self._seed
+            self._effective_seed = self._seed_pool[self._current_seed_idx]
+        elif self._seed is None:
+            # Mode full-random : génère un seed aléatoire et le mémorise pour le logging
+            self._effective_seed = self._rng.randrange(10 ** 6)
+        else:
+            self._current_seed_idx = 0
+            self._effective_seed = self._seed
+        return self._effective_seed
 
     def _observe(self) -> dict:
         """Construit le dict d'observation depuis l'état courant."""
