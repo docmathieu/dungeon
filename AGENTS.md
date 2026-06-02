@@ -353,29 +353,66 @@ Tests : `tests/test_exploit.py` (55 tests)
 Scripts utilitaires pour comprendre les seeds et le comportement RL.
 À lancer manuellement depuis la racine du projet — pas de skill associé.
 
-### `analyze/evaluate.py` *(ajouté 2026-06-01)*
+### `analyze/evaluate.py` *(ajouté 2026-06-01, amélioré 2026-06-02)*
 **Objectif** : évaluer la performance d'un checkpoint sur un ensemble de seeds (connus ou inconnus).
+**Tests** : `tests/test_evaluate.py` (21 tests)
 
 **Usage** :
 ```bash
-.venv\Scripts\python.exe analyze/evaluate.py --checkpoint models/.../final.pt --seeds 100-299
-.venv\Scripts\python.exe analyze/evaluate.py --checkpoint models/.../final.pt --seeds 0,1,5,10
-.venv\Scripts\python.exe analyze/evaluate.py --checkpoint models/.../final.pt --seeds 0-99 --verbose
+.venv\Scripts\python.exe analyze/evaluate.py --checkpoint models/.../final.zip --seeds 0-9
+.venv\Scripts\python.exe analyze/evaluate.py --checkpoint models/.../final.zip --seeds 100-299
+.venv\Scripts\python.exe analyze/evaluate.py --checkpoint models/.../final.zip --seeds 0-9 --n-episodes 5
+.venv\Scripts\python.exe analyze/evaluate.py --checkpoint models/.../final.zip --seeds 0-9 --stochastic --n-episodes 10
+.venv\Scripts\python.exe analyze/evaluate.py --checkpoint models/.../final.pt  --seeds 100-299 --verbose
 ```
 
+**Options** :
+- `--n-episodes N` : épisodes par seed (défaut 1 ; utile en stochastique pour mesurer la variance)
+- `--stochastic` : politique stochastique PPO (`deterministic=False`), ignoré pour DQN
+- `--verbose` : détail par seed (win/loss + score, ou win rate + score moy si n-episodes > 1)
+
 **Sorties** :
-- `Victoires : N/total (X%)` — win rate
-- `Score moyen : X` — tous épisodes (échecs = 0) — reflète la performance globale réelle
+- `Victoires : N/total (X%)[épisodes total]` — win rate
+- `Score moyen : X` — tous épisodes (échecs = 0)
 - `Score moyen wins : X` — victoires uniquement
 
-**Détection automatique de l'architecture** via `load_net` : FiLM / ObsDQNetwork / DQNetwork.
-Pour `ObsDQNetwork`, utilise `encode_obs_pure` (304 floats). Pour les autres, `encode_obs(seed_idx=0)`.
+**Détection automatique** via `load_model` : `.pt` → DQN (FiLM / ObsDQNetwork / DQNetwork), `.zip` → PPO SB3.
 
-**Résultats de référence (2026-06-01) :**
-- Baseline task-cond (run 28/1039, seeds 100–299) : **1.0%**
-- ObsDQNetwork pool100 20 000 ep (seeds 100–299) : **1.5–4.0%** (plafond, pas de tendance)
-- ObsDQNetwork pool100 20 000 ep (seeds 0–99 vus) : **2.0–5.0%** → diagnostic : pas de mémorisation non plus
-- ObsDQNetwork seed=0 seul, 3 000 ep (seed=0) : **100%** win rate à ep1500 ✅
+**Résultats de référence :**
+- Baseline task-cond DQN (run 28/1039, seeds 100–299) : **1.0%** déterministe
+- PPO pool10 500k ts (seeds 100–299) : **4.0%** déterministe, **~14%** stochastique (estimé)
+- PPO pool100 2M ts (seeds 0–99 vus) : **35%** déterministe
+- PPO pool100 2M ts (seeds 100–299 inconnus) : **3%** déterministe, **13.8%** stochastique ×3
+
+**⚠️ Stochastique >> déterministe pour PPO :** le mode greedy se coince dans des boucles sur les
+configurations inconnues. La stochasticité débride la politique (+4.6× sur seeds inconnus).
+Contrepartie : score moy wins chute (94.5 → 41.5) — la politique tâtonne plutôt que de naviguer.
+
+---
+
+## Conclusion architecturale — Limite du MLP (2026-06-02)
+
+### Diagnostic définitif
+
+La généralisation plafonne (~4% déterministe, ~14% stochastique sur seeds inconnus) **quel que soit
+l'algorithme** (DQN ou PPO) et **quel que soit le pool** (10 ou 100 seeds).
+
+**Cause :** le MLP reçoit la grille comme une liste plate de 300 features indépendantes.
+C'est déjà le 10×10×3 aplati — le réseau voit tout. Mais chaque position utilise des poids différents :
+apprendre "obstacle en (2,3) → tourner" ne transfère pas à "obstacle en (7,8) → tourner".
+
+### Solution : CNN (prochaine étape)
+
+Un filtre convolutionnel 3×3 s'applique à toutes les positions de la grille avec les mêmes poids :
+vu une fois en (2,3), généralisé en (7,8) automatiquement. L'inductive bias spatial manquant au MLP.
+
+| | MLP (actuel) | CNN (prochaine étape) |
+|---|---|---|
+| Input | 300 floats (grille aplatie) | Tenseur 10×10×3 |
+| "Obstacle à droite" | 100 règles (une par position) | 1 filtre partagé |
+| Généralisation | Nécessite beaucoup de seeds | Automatique |
+
+**Architecture cible : CNN + PPO** (PPO résout le catastrophic forgetting, CNN résout la généralisation).
 
 ### `analyze/search_seeds.py`
 **Objectif** : trouver 20 seeds pédagogiquement intéressants pour le curriculum RL.

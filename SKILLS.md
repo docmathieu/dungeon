@@ -123,7 +123,43 @@ Toutes les variantes DQN (MLP/task-cond/FiLM/obs) échouent à maintenir plusieu
 | ObsDQNetwork seed unique | Score 100 dès ep1500 ✅ |
 | ObsDQNetwork curriculum pool3 | 23% max ep200, 0% à ep1000 — même pattern |
 
-**Piste suivante sérieuse : PPO** (algorithme on-policy, mises à jour stables).
+---
+
+## Bilan expérimental PPO (2026-06-02)
+
+PPO résout le catastrophic forgetting mais la généralisation reste limitée par l'architecture MLP.
+
+| Expérience | Résultat clé |
+|---|---|
+| PPO pool10 500k ts — online | **89%** wr max, plancher 30%, pas de catastrophic forgetting ✅ |
+| PPO pool10 500k ts — det seeds 0–9 | 30% (3/10), score wins 100 |
+| PPO pool10 500k ts — stoch ×5 seeds 0–9 | **54%** (27/50) → stochastique >> déterministe |
+| PPO pool10 500k ts — det seeds 100–299 | **4%** baseline généralisation |
+| PPO pool100 2M ts — online | 56% final, stable 45–77%, pas de catastrophic forgetting ✅ |
+| PPO pool100 2M ts — det seeds 0–99 | **35%** wr, score wins 94.1 |
+| PPO pool100 2M ts — det seeds 100–299 | **3%** généralisation (≈ pool10) |
+| PPO pool100 2M ts — stoch ×3 seeds 100–299 | **13.8%** (+4.6× vs déterministe) |
+
+**Conclusion :** augmenter le pool (10→100 seeds) n'améliore pas la généralisation déterministe.
+La limite est **architecturale** : le MLP ne capte pas les invariances spatiales de la grille.
+
+---
+
+## Limite MLP et prochaine étape : CNN + PPO (2026-06-02)
+
+**Pourquoi le MLP ne généralise pas :**
+- Le MLP reçoit 300 features indépendantes (grille 10×10×3 aplatie)
+- Chaque position utilise des poids distincts → apprendre "obstacle en (2,3)" ≠ "obstacle en (7,8)"
+- Nécessite des milliers de grilles différentes pour couvrir l'espace des configurations
+
+**Ce qu'apporte CNN :**
+- Un filtre convolutionnel 3×3 s'applique à toutes les positions avec les mêmes poids
+- Invariance spatiale par construction : vu en (2,3), généralisé en (7,8)
+- Même architecture input/output, mais traitement spatial au lieu de liste plate
+
+**Architecture cible : CNN + PPO**
+- PPO : résout catastrophic forgetting (✅ déjà prouvé)
+- CNN : résout généralisation spatiale (← prochaine implémentation)
 
 ---
 
@@ -132,16 +168,25 @@ Toutes les variantes DQN (MLP/task-cond/FiLM/obs) échouent à maintenir plusieu
 Scripts Python utilitaires pour l'étude des seeds et du comportement RL.
 Ne font pas partie du jeu ni de l'entraînement — à lancer manuellement depuis la racine du projet.
 
-### `analyze/evaluate.py` *(ajouté 2026-06-01)*
-**Résultat** : win rate + score moyen d'un checkpoint sur N seeds
-
-Évalue la performance d'un modèle entraîné, notamment sur des seeds jamais vus (mesure de généralisation).
-Détecte automatiquement l'architecture (ObsDQNetwork / FiLMDQNetwork / DQNetwork).
+### `analyze/evaluate.py` *(ajouté 2026-06-01, amélioré 2026-06-02)*
+**Résultat** : win rate + score moyen d'un checkpoint sur N seeds (DQN ou PPO)
 
 ```bash
-.venv\Scripts\python.exe analyze/evaluate.py --checkpoint models/.../final.pt --seeds 100-299
-.venv\Scripts\python.exe analyze/evaluate.py --checkpoint models/.../final.pt --seeds 0-99 --verbose
+.venv\Scripts\python.exe analyze/evaluate.py --checkpoint models/.../final.zip --seeds 0-9
+.venv\Scripts\python.exe analyze/evaluate.py --checkpoint models/.../final.zip --seeds 100-299
+.venv\Scripts\python.exe analyze/evaluate.py --checkpoint models/.../final.zip --seeds 0-9 --n-episodes 5
+.venv\Scripts\python.exe analyze/evaluate.py --checkpoint models/.../final.zip --seeds 0-9 --stochastic --n-episodes 10
 ```
+
+Options clés :
+- `--n-episodes N` : répète chaque seed N fois (utile en stochastique pour mesurer la variance)
+- `--stochastic` : politique stochastique PPO — recommandé pour évaluer la vraie capacité du modèle
+- `--verbose` : détail par seed
+
+**Résultats PPO pool100 (2026-06-02) :**
+- Seeds 0–99 (entraînement) déterministe : **35%** wr, score wins 94.1
+- Seeds 100–299 (inconnus) déterministe : **3%** wr, score wins 94.5
+- Seeds 100–299 (inconnus) stochastique ×3 : **13.8%** wr, score wins 41.5
 
 ---
 

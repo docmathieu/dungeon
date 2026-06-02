@@ -428,3 +428,90 @@ pool100 → pool500 → pool2000 → seed=None (full random)
 | C — Curriculum 10 seeds | Difficulté progressive par étapes | ✅ Testé (59% max pool10) |
 | B — Pool fixe large | pool 100–2000 seeds, sans task-cond | ← **Prochaine session** |
 | A — Full random | Nouveau terrain à chaque épisode | Long terme |
+
+---
+
+## Session 2026-06-02 — Support PPO UI + évaluation pool100
+
+### Tests : 331 tests, 0 échec
+
+### Nouveaux fichiers
+- `tests/test_evaluate.py` — 21 tests (TestParseSeeds, TestEvaluateDQN, TestEvaluateNEpisodes, TestEvaluatePPO)
+
+### Modifications
+- `exploit.py` : `load_ppo(path)`, `load_model(path)`, `run_one_episode_info_ppo(model, seed)`,
+  dispatch auto DQN/PPO dans `run_one_episode_info`, `scan_run_dir` supporte `.pt` + `.zip`
+- `ui.py` : file picker `.pt`+`.zip`, thread multi incrémental, pygame.time.get_ticks() hors thread,
+  `_ai_optimal_path` corrigé dans `_restart_ai_anim`
+- `analyze/evaluate.py` : `--n-episodes N` (épisodes/seed), `--stochastic` (politique stochastique PPO),
+  utilise `load_model` de exploit.py, dict retour enrichi (`n_seeds`, `n_episodes`, `total_episodes`)
+
+### Entraînement PPO pool100 ✅
+Run : `20260602_1028_run`, from scratch, 2M timesteps, seeds 0–99, ~38 minutes
+
+**Courbe online :**
+| Phase | Timesteps | Win rate online |
+|-------|-----------|-----------------|
+| Montée | 0–200k | 33% → 63% |
+| Consolidation | 200k–800k | 55–**77%** (pic ts 400k) |
+| Plateau stable | 800k–2M | 45–70%, moyenne ~57% |
+| Final | 2M | 56% |
+
+Pas de catastrophic forgetting sur toute la durée (plancher ~45% vs 0% en DQN).
+
+### Résultats d'évaluation — PPO pool100 vs PPO pool10
+
+| Métrique | Pool10 (500k ts) | Pool100 (2M ts) |
+|---|---|---|
+| Training — déterministe | 30% (3/10) | **35%** (35/100) |
+| Training — stochastique ×5 | 54% (27/50) | — |
+| Inconnus 100–299 — déterministe | **4%** (8/200) | 3% (6/200) |
+| Inconnus 100–299 — stochastique ×3 | — | **13.8%** (83/600) |
+| Score moy wins (inconnus det) | 95.1 | 94.5 |
+| Score moy wins (inconnus stoch) | — | 41.5 |
+
+**Observations clés :**
+- Pool100 est meilleur sur ses seeds d'entraînement (35% vs 30%) mais pas en généralisation déterministe (3% vs 4%)
+- Mode stochastique ×3 → **13.8%** sur seeds inconnus (4.6× mieux que déterministe) : la randomité débloque les situations bloquées
+- Quand PPO gagne en stochastique sur seeds inconnus, score moy = 41.5 (sous-optimal) : il trouve la sortie par tâtonnement, pas par stratégie
+- Clusters de défaites consécutives (seeds 70–91, 100–155…) → configurations structurellement similaires non résolues
+
+### Conclusion architecturale — Limite du MLP pour la généralisation
+
+**Le problème n'est pas DQN vs PPO, ni la taille du pool. C'est l'architecture MLP.**
+
+Le MLP reçoit la grille comme **liste plate de 300 features indépendantes** (one-hot 100 cases × 3 types).
+C'est déjà la grille 10×10×3 aplatie — le réseau voit l'ensemble du terrain.
+
+**Mais le MLP traite chaque position avec des poids différents :** apprendre "rocher en (2,3) → tourner"
+et "rocher en (7,8) → tourner" nécessite des exemples séparés pour chaque position.
+Il faut des milliers de seeds différents pour couvrir l'espace des configurations.
+
+**CNN = partage de poids spatial :** un seul filtre 3×3 détecte "obstacle à droite" partout sur la grille.
+Vu une fois, généralisé partout. C'est l'inductive bias manquant au MLP.
+
+| | MLP (actuel) | CNN (prochaine étape) |
+|---|---|---|
+| Input | 300 floats (grille aplatie) | Tenseur 10×10×3 |
+| "Obstacle à droite" | 100 règles (une par position) | 1 filtre partagé |
+| Généralisation spatiale | Nécessite beaucoup de seeds | Automatique |
+| Changement requis | — | Architecture réseau uniquement |
+
+### Roadmap RL — état actuel
+
+1. ~~DungeonEnv (interface Gym)~~ ✅
+2. ~~Entraînement DQN~~ ✅ (limite : catastrophic forgetting multi-seeds)
+3. ~~Task-conditioning / FiLM / ObsDQNetwork~~ ✅ (limite : même problème)
+4. ~~Visualisation pygame~~ ✅ (DQN + PPO)
+5. ~~PPO Stable-Baselines3~~ ✅ (résout catastrophic forgetting, 89% pool10)
+6. ~~UI PPO (.zip)~~ ✅ (load_model, scan_run_dir, animation incrémentale)
+7. ~~evaluate.py (--n-episodes, --stochastic)~~ ✅
+8. ~~PPO pool100 2M ts~~ ✅ (35% training, 3% inconnus det, 13.8% inconnus stoch)
+9. **CNN + PPO** ← prochaine étape sérieuse pour la généralisation
+
+### Décision architecturale pour la généralisation
+
+Passer à **CNN + PPO** :
+- Input : grille 10×10 comme tenseur 3 canaux (herbe/roche/eau) + positions en entrée séparée
+- Algorithme : PPO (stable, pas de catastrophic forgetting)
+- Avantage : généralisation spatiale par partage de poids des filtres convolutionnels
