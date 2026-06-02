@@ -84,12 +84,29 @@ Compile le jeu en exécutable Windows autonome (PyInstaller).
 **Logs** : `{"episode", "timestep", "seed", "won", "score", "moves", "reward"}` — même format que DQN.
 **Checkpoints** : `.zip` (SB3) tous les 50k timesteps + `final.zip`
 
-**`analyze/evaluate.py`** supporte maintenant les deux formats :
+**`analyze/evaluate.py`** supporte les deux formats :
 - `.pt` → DQN (inchangé)
 - `.zip` → PPO SB3 (`deterministic=True`)
 
-⚠️ **UI non adaptée** : `exploit.py` et `ui.py` ne chargent pas encore les `.zip` PPO.
-→ Prochaine session : adapter `load_net` + `run_one_episode_info` + file picker UI.
+---
+
+## Visualisation UI des modèles IA (2026-06-02) ✅
+
+`src/exploit.py` — chargement et exécution de modèles DQN et PPO :
+
+| Fonction | Description |
+|----------|-------------|
+| `load_net(path)` | Charge `.pt` DQN (détection archi automatique) |
+| `load_ppo(path)` | Charge `.zip` PPO SB3 |
+| `load_model(path)` | Dispatcher : `.pt` → DQN, `.zip` → PPO |
+| `run_one_episode_info(model, seed)` | Trail + résultat — dispatch auto DQN/PPO |
+| `run_one_episode_info_ppo(model, seed)` | Épisode PPO déterministe via `DungeonGymEnv` |
+| `scan_run_dir(run_dir)` | Checkpoints ordonnés dans un `*_run/` (`.pt` et `.zip`) |
+
+**Boutons IA dans l'UI :**
+- `[IA simple model]` — file picker `.pt`/`.zip` → un épisode, trail orange + chemin rouge
+- `[IA multi model]` — directory picker `*_run/` → tous les checkpoints en thread de fond, animation incrémentale
+- `[IA restart]` — rejoue sur le terrain courant, met à jour trail ET chemin optimal
 
 ---
 

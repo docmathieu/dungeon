@@ -291,14 +291,10 @@ Affichage toutes les 10 000 timesteps : `ts X/N  ep=N  wr=X%  t=Xs`
 
 ### ⏭️ Prochaines étapes PPO (session suivante)
 
-**1. Adapter l'UI pour charger les modèles PPO (.zip)**
-
-`exploit.py` et `ui.py` ne gèrent que les `.pt` DQN. Il faut :
-- Ajouter `load_ppo(path)` dans `exploit.py` : `PPO.load(path)`
-- Ajouter `run_one_episode_info_ppo(model, seed)` utilisant `DungeonGymEnv`
-- Mettre à jour `load_net` pour détecter `.zip` → déléguer à `load_ppo`
-- Mettre à jour `run_one_episode_info` pour gérer les deux types
-- Dans `ui.py` : le file picker `[IA simple model]` doit accepter `.zip` en plus de `.pt`
+**1. ~~Adapter l'UI pour charger les modèles PPO (.zip)~~ ✅ (2026-06-02)**
+- `load_ppo`, `load_model`, `run_one_episode_info_ppo` ajoutés à `exploit.py`
+- `scan_run_dir` supporte `.pt` et `.zip`
+- File picker UI accepte `.pt` et `.zip` ; animation multi-model supporte les deux formats
 
 **2. Améliorer l'évaluation**
 - Tester avec plusieurs épisodes par seed (politique stochastique vs déterministe)
@@ -313,16 +309,42 @@ python src/train_ppo.py --timesteps 2000000 --seed-pool 0-99
 
 ### Agent : replay-model *(Phase 3 — visualisation pygame)* ✅
 Fichiers : `src/exploit.py`, `src/ui.py`
+Tests : `tests/test_exploit.py` (55 tests)
 
-`load_net(path)` — détection automatique d'architecture (`.pt` DQN uniquement pour l'instant) :
+**Chargement de modèles :**
+
+`load_net(path)` — charge un checkpoint `.pt` DQN, détecte l'architecture automatiquement :
 - Clés contenant `film` → `FiLMDQNetwork`
 - `net.0.weight.shape[1] == OBS_DIM (304)` → `ObsDQNetwork`
 - Sinon → `DQNetwork`
 
-`run_one_episode_info(net, seed, seed_idx=0)` → `(trail, won, score)`
-Utilise `encode_obs_pure` pour `ObsDQNetwork`, `encode_obs` pour les autres.
+`load_ppo(path)` — charge un checkpoint `.zip` PPO Stable-Baselines3 (`PPO.load(path)`).
 
-⚠️ **Ne supporte pas encore les modèles PPO (.zip)** — voir prochaines étapes ci-dessus.
+`load_model(path)` — dispatcher selon l'extension :
+- `.pt` → `load_net`
+- `.zip` → `load_ppo`
+
+**Exécution d'épisodes :**
+
+`run_one_episode_info(model, seed, seed_idx=0)` → `(trail, won, score)`
+- Dispatch automatique : si `model` possède `predict()` (SB3 PPO) → `run_one_episode_info_ppo`
+- Sinon (DQN) : utilise `encode_obs_pure` pour `ObsDQNetwork`, `encode_obs` pour les autres
+
+`run_one_episode_info_ppo(model, seed)` → `(trail, won, score)`
+- Crée un `DungeonGymEnv(seed=seed)`, joue en mode déterministe (`deterministic=True`)
+
+`run_one_episode(model, seed, seed_idx=0)` → `trail` (délègue à `run_one_episode_info`)
+
+**Exploration de runs :**
+
+`scan_run_dir(run_dir)` → liste ordonnée de checkpoints `{stage_idx, color, pt_path}`
+- Supporte les checkpoints DQN (`.pt`) et PPO (`.zip`) dans le même run
+- Tri numérique : `ep{N}.pt` et `ppo_{N}_steps.zip` → N, `final.*` → +∞
+
+**Boutons IA dans l'UI :**
+- `[IA simple model]` : file picker acceptant `.pt` et `.zip` → joue un épisode, affiche trail orange + chemin rouge
+- `[IA multi model]` : directory picker `*_run/` → charge TOUS les checkpoints (DQN et/ou PPO) en thread de fond → animation incrémentale 200ms/trail + barre de progression
+- `[IA restart]` : rejoue le(s) modèle(s) chargé(s) sur le terrain courant ; met à jour trail ET chemin optimal
 
 ---
 

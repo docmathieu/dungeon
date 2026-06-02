@@ -370,15 +370,20 @@ class GameUI:
         root.withdraw()
         root.attributes("-topmost", True)
         path_str = tkinter.filedialog.askopenfilename(
-            title="Choisir un checkpoint (.pt)",
-            filetypes=[("PyTorch checkpoint", "*.pt"), ("Tous les fichiers", "*.*")],
+            title="Choisir un checkpoint (.pt DQN ou .zip PPO)",
+            filetypes=[
+                ("Checkpoint IA", "*.pt *.zip"),
+                ("PyTorch DQN", "*.pt"),
+                ("SB3 PPO", "*.zip"),
+                ("Tous les fichiers", "*.*"),
+            ],
         )
         root.destroy()
         if not path_str:
             return
         try:
-            from exploit import load_net, run_one_episode_info
-            self._ai_net = load_net(Path(path_str))
+            from exploit import load_model, run_one_episode_info
+            self._ai_net = load_model(Path(path_str))
             trail, won, score = run_one_episode_info(self._ai_net, seed=self._current_seed)
             self._ai_trail        = trail
             self._ai_optimal_path = self._state.optimal_path   # même seed → même chemin
@@ -417,7 +422,7 @@ class GameUI:
         self._loading_progress = 0.0
 
         def _load() -> None:
-            from exploit import scan_run_dir, load_net, run_one_episode_info
+            from exploit import scan_run_dir, load_model, run_one_episode_info
             try:
                 checkpoints = scan_run_dir(run_dir)
                 if not checkpoints:
@@ -436,7 +441,7 @@ class GameUI:
                 wins = 0
                 scores_sum = 0
                 for i, cp in enumerate(checkpoints):
-                    net               = load_net(cp["pt_path"])
+                    net               = load_model(cp["pt_path"])
                     trail, won, score = run_one_episode_info(net, seed=seed)
                     if won:
                         wins      += 1
@@ -450,18 +455,21 @@ class GameUI:
                                        "alpha": alpha, "stage_idx": s})
                     trails.append({"trail": trail, "color": cp["color"],
                                    "alpha": alpha, "stage_idx": s})
+                    # Mise à jour incrémentale — les trails sont visibles au fur et à mesure
+                    self._ai_trails = list(trails)
                     self._loading_progress = (i + 1) / n
-                    # mise à jour incrémentale pendant le chargement
                     self._ai_stats = {
                         "wins":     wins,
                         "note_moy": scores_sum / (i + 1),   # échecs comptent comme 0
                         "total":    i + 1,
                     }
 
-                self._ai_nets_cache = nets_cache   # persistant — réutilisé sans disque
-                self._ai_trails     = trails
-                self._anim_idx      = -1
-                self._anim_last_ms  = pygame.time.get_ticks()
+                # Persistant — réutilisé sans relire le disque (IA restart)
+                self._ai_nets_cache = nets_cache
+                self._ai_trails     = list(trails)
+                self._anim_idx      = -1   # relance l'animation depuis le début
+                # Pas de pygame.time.get_ticks() ici — non thread-safe sur Windows ;
+                # la boucle principale gère anim_last_ms dès le premier tick.
             except Exception as exc:
                 print(f"[IA multi] Erreur : {exc}")
             finally:
@@ -526,7 +534,8 @@ class GameUI:
             try:
                 from exploit import run_one_episode_info
                 trail, won, score = run_one_episode_info(self._ai_net, seed=self._current_seed)
-                self._ai_trail = trail
+                self._ai_trail        = trail
+                self._ai_optimal_path = self._state.optimal_path
                 self._ai_stats = {
                     "wins":     1 if won else 0,
                     "note_moy": score if won else 0,
