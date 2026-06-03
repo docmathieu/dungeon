@@ -37,6 +37,7 @@ from stable_baselines3.common.vec_env import DummyVecEnv
 sys.path.insert(0, os.path.dirname(__file__))
 
 from dungeon_env import DungeonEnv, ACTIONS, MAX_STEPS
+from run_utils import _now, _pretrained_label
 
 
 # ---------------------------------------------------------------------------
@@ -285,10 +286,6 @@ class LogCallback(BaseCallback):
 # Nommage des runs (cohérence avec train.py)
 # ---------------------------------------------------------------------------
 
-def _now() -> str:
-    return time.strftime("%Y%m%d_%H%M")
-
-
 def _run_label(
     seed:         int | None,
     seed_pool:    list[int] | None,
@@ -418,10 +415,11 @@ def _parse_pool(pool_str: str) -> list[int]:
 if __name__ == "__main__":
     args  = _parse_args()
     pool  = _parse_pool(args.seed_pool) if args.seed_pool else None
-    ts    = _now()
-    label = _run_label(args.seed, pool, architecture=args.architecture)
-    run   = f"{ts}_{label}_ts{args.timesteps}"
-    run_dir = f"{ts}_run"
+    ts       = _now()
+    label    = _run_label(args.seed, pool, architecture=args.architecture)
+    from_label = _pretrained_label(args.pretrained)
+    run        = f"{ts}_{label}_ts{args.timesteps}" + (f"_from_{from_label}" if from_label else "")
+    run_dir  = f"{ts}_run"
 
     train(
         timesteps    = args.timesteps,

@@ -24,17 +24,21 @@ DARK   = ( 40,  40,  40)
 CYAN   = (  0, 220, 220)
 ORANGE = (255, 140,   0)   # couleur unique des tracés IA
 
-OPTIMAL_TRAIL_OFFSET = 2   # px shift so optimal trail doesn't overlap player trail
+TRAIL_WIDTH  = 3   # épaisseur de tous les traits (px)
+TRAIL_OFFSET = 5   # décalage latéral — rouge = −offset (gauche), jaune = 0 (centre), orange = +offset (droite)
+_TRAIL_COLORKEY = (1, 0, 1)  # magenta pur — couleur-clé transparente pour la surface multi-trails
 
-TILE_PX   = 40   # rendered cell size (pixels)
-SEP_PX    = 1    # separator between cells
-CELL_STEP = TILE_PX + SEP_PX   # 41 px
+TILE_PX   = 80   # rendered cell size (pixels)
+SEP_PX    = 0    # separator between cells (0 = no gap)
+CELL_STEP = TILE_PX + SEP_PX   # 80 px
+
+_ASSETS_DIR = Path(__file__).parent.parent / "assets" / "tiles"
 
 GRID_W = Grid.WIDTH  * CELL_STEP - SEP_PX   # 409 px
 GRID_H = Grid.HEIGHT * CELL_STEP - SEP_PX   # 409 px
 
-HUD_TOP_H = 80    # height of the top HUD strip
-HUD_BOT_H = 110   # height of the bottom HUD strip (2 rows of buttons + stats)
+HUD_TOP_H = 108   # height of the top HUD strip (stats + seed + all buttons + loading bar)
+HUD_BOT_H = 0     # plus de HUD bas — tous les boutons sont en HUD_TOP
 
 INPUT_ACTIVE_COL = ( 60,  60,  80)   # fond du champ de saisie actif
 INPUT_BORDER_COL = (100, 100, 200)   # bordure du champ actif
@@ -59,6 +63,9 @@ class GameUI:
         pygame.display.set_caption("Dungeon")
         self._font = pygame.font.SysFont("Arial", 16)
         self._clock = pygame.time.Clock()
+        self._tile_surfaces  = self._load_tile_surfaces()
+        self._player_surface = self._load_sprite("player.png")
+        self._castle_surface = self._load_sprite("castle.png")
 
         self._grid: Grid | None = None
         self._state: GameState | None = None
@@ -88,7 +95,7 @@ class GameUI:
         self._loading_thread: threading.Thread | None = None
         self._trail_surf: pygame.Surface | None = None   # surface réutilisable pour alpha
 
-        # Rects des boutons (initialisés dans _draw_hud_bot)
+        # Rects des boutons (initialisés dans _draw_hud_top et _draw_hud_bot)
         self._restart_rect:    pygame.Rect = pygame.Rect(0, 0, 0, 0)
         self._seed_input_rect: pygame.Rect = pygame.Rect(0, 0, 0, 0)
         self._ai_simple_rect:  pygame.Rect = pygame.Rect(0, 0, 0, 0)
@@ -132,26 +139,65 @@ class GameUI:
         self._draw_ai_trails()        # mode multi (animation)
         self._draw_ai_optimal_path()  # chemin optimal rouge (fin d'épisode IA)
         self._draw_character()
-        self._draw_exit()
+        self._draw_castle()
         self._draw_hud_top()
         self._draw_hud_bot()
         pygame.display.flip()
 
+    @staticmethod
+    def _load_tile_surfaces() -> dict:
+        """Charge et redimensionne les PNG de tuiles (40×40 px).
+
+        Retourne un dict {TileType → Surface}.
+        Si un fichier est absent, la valeur est None → fallback couleur dans _draw_grid.
+        """
+        mapping = {
+            TileType.GRASS: "grass.png",
+            TileType.ROCK:  "rock.png",
+            TileType.WATER: "water.png",
+        }
+        surfaces = {}
+        for tile_type, filename in mapping.items():
+            path = _ASSETS_DIR / filename
+            if path.exists():
+                img = pygame.image.load(str(path)).convert_alpha()
+                surfaces[tile_type] = pygame.transform.scale(img, (TILE_PX, TILE_PX))
+            else:
+                surfaces[tile_type] = None   # fallback couleur
+        return surfaces
+
+    @staticmethod
+    def _load_sprite(filename: str) -> "pygame.Surface | None":
+        """Charge un sprite depuis assets/tiles/ et le redimensionne à TILE_PX×TILE_PX.
+
+        Retourne None si le fichier est absent.
+        """
+        path = _ASSETS_DIR / filename
+        if path.exists():
+            img = pygame.image.load(str(path)).convert_alpha()
+            return pygame.transform.scale(img, (TILE_PX, TILE_PX))
+        return None
+
     def _draw_grid(self) -> None:
+        _fallback = {
+            TileType.GRASS: GREEN,
+            TileType.ROCK:  GREY,
+            TileType.WATER: BLUE,
+        }
         for gy in range(Grid.HEIGHT):
             for gx in range(Grid.WIDTH):
                 tile = self._grid.get_tile(gx, gy)
-                colour = {
-                    TileType.GRASS: GREEN,
-                    TileType.ROCK:  GREY,
-                    TileType.WATER: BLUE,
-                }[tile]
-                pygame.draw.rect(self._screen, colour, _tile_rect(gx, gy))
+                surf = self._tile_surfaces.get(tile)
+                rect = _tile_rect(gx, gy)
+                if surf is not None:
+                    self._screen.blit(surf, rect)
+                else:
+                    pygame.draw.rect(self._screen, _fallback[tile], rect)
 
     def _draw_optimal_trail(self) -> None:
         if self._state.info == "" or self._state.optimal_path is None:
             return
-        o = OPTIMAL_TRAIL_OFFSET
+        o = -TRAIL_OFFSET
         path = self._state.optimal_path
         for i in range(len(path) - 1):
             ax, ay = path[i]
@@ -162,7 +208,7 @@ class GameUI:
                 self._screen, RED,
                 (ra.centerx + o, ra.centery + o),
                 (rb.centerx + o, rb.centery + o),
-                2,
+                TRAIL_WIDTH,
             )
 
     def _draw_ai_optimal_path(self) -> None:
@@ -181,7 +227,7 @@ class GameUI:
             show = False
         if not show:
             return
-        o = OPTIMAL_TRAIL_OFFSET
+        o = -TRAIL_OFFSET
         for i in range(len(self._ai_optimal_path) - 1):
             ax, ay = self._ai_optimal_path[i]
             bx, by = self._ai_optimal_path[i + 1]
@@ -191,13 +237,14 @@ class GameUI:
                 self._screen, RED,
                 (ra.centerx + o, ra.centery + o),
                 (rb.centerx + o, rb.centery + o),
-                2,
+                TRAIL_WIDTH,
             )
 
     def _draw_ai_trail(self) -> None:
-        """Dessine le tracé du mode IA simple (cyan uni)."""
+        """Dessine le tracé du mode IA simple (orange)."""
         if not self._ai_trail or len(self._ai_trail) < 2:
             return
+        o = TRAIL_OFFSET
         for i in range(len(self._ai_trail) - 1):
             ax, ay = self._ai_trail[i]
             bx, by = self._ai_trail[i + 1]
@@ -205,34 +252,40 @@ class GameUI:
             rb = _tile_rect(bx, by)
             pygame.draw.line(
                 self._screen, ORANGE,
-                (ra.centerx, ra.centery),
-                (rb.centerx, rb.centery),
-                3,
+                (ra.centerx + o, ra.centery + o),
+                (rb.centerx + o, rb.centery + o),
+                TRAIL_WIDTH,
             )
 
     def _draw_ai_trails(self) -> None:
-        """Dessine les trails animés du mode multi-checkpoints (avec alpha)."""
+        """Dessine les trails animés du mode multi-checkpoints (avec alpha).
+
+        Utilise colorkey + set_alpha (surface normale) plutôt que SRCALPHA pour
+        garantir que TRAIL_WIDTH est respecté quelle que soit la version SDL2.
+        """
         if not self._ai_trails or self._anim_idx < 0:
             return
         if self._trail_surf is None:
-            self._trail_surf = pygame.Surface((WIN_W, WIN_H), pygame.SRCALPHA)
+            self._trail_surf = pygame.Surface((WIN_W, WIN_H))
+            self._trail_surf.set_colorkey(_TRAIL_COLORKEY)
+        o = TRAIL_OFFSET
         for td in self._ai_trails[:self._anim_idx + 1]:
             trail = td["trail"]
             if len(trail) < 2:
                 continue
             r, g, b = td["color"]
-            alpha   = td["alpha"]
-            self._trail_surf.fill((0, 0, 0, 0))
+            self._trail_surf.fill(_TRAIL_COLORKEY)        # efface → transparent via colorkey
+            self._trail_surf.set_alpha(td["alpha"])        # alpha global du trail
             for i in range(len(trail) - 1):
                 ax, ay = trail[i]
                 bx, by = trail[i + 1]
                 ra = _tile_rect(ax, ay)
                 rb = _tile_rect(bx, by)
                 pygame.draw.line(
-                    self._trail_surf, (r, g, b, alpha),
-                    (ra.centerx, ra.centery),
-                    (rb.centerx, rb.centery),
-                    3,
+                    self._trail_surf, (r, g, b),           # couleur RGB (sans alpha)
+                    (ra.centerx + o, ra.centery + o),
+                    (rb.centerx + o, rb.centery + o),
+                    TRAIL_WIDTH,
                 )
             self._screen.blit(self._trail_surf, (0, 0))
 
@@ -247,25 +300,31 @@ class GameUI:
                 self._screen, YELLOW,
                 (ra.centerx, ra.centery),
                 (rb.centerx, rb.centery),
-                2,
+                TRAIL_WIDTH,
             )
 
     def _draw_character(self) -> None:
         gx, gy = self._state.char_pos
         r = _tile_rect(gx, gy)
-        cx, cy = r.centerx, r.centery
-        pygame.draw.circle(self._screen, YELLOW, (cx, cy - 8), 7)
-        pygame.draw.line(self._screen, YELLOW, (cx, cy - 1), (cx, cy + 10), 2)
-        pygame.draw.line(self._screen, YELLOW, (cx - 7, cy + 4), (cx + 7, cy + 4), 2)
-        pygame.draw.line(self._screen, YELLOW, (cx, cy + 10), (cx - 6, cy + 18), 2)
-        pygame.draw.line(self._screen, YELLOW, (cx, cy + 10), (cx + 6, cy + 18), 2)
+        if self._player_surface is not None:
+            self._screen.blit(self._player_surface, r)
+        else:
+            cx, cy = r.centerx, r.centery
+            pygame.draw.circle(self._screen, YELLOW, (cx, cy - 8), 7)
+            pygame.draw.line(self._screen, YELLOW, (cx, cy - 1), (cx, cy + 10), 2)
+            pygame.draw.line(self._screen, YELLOW, (cx - 7, cy + 4), (cx + 7, cy + 4), 2)
+            pygame.draw.line(self._screen, YELLOW, (cx, cy + 10), (cx - 6, cy + 18), 2)
+            pygame.draw.line(self._screen, YELLOW, (cx, cy + 10), (cx + 6, cy + 18), 2)
 
-    def _draw_exit(self) -> None:
+    def _draw_castle(self) -> None:
         gx, gy = self._state.exit_pos
         r = _tile_rect(gx, gy)
-        door = pygame.Rect(r.centerx - 6, r.centery - 9, 12, 18)
-        pygame.draw.rect(self._screen, YELLOW, door, 2)
-        pygame.draw.circle(self._screen, YELLOW, (r.centerx + 4, r.centery), 2)
+        if self._castle_surface is not None:
+            self._screen.blit(self._castle_surface, r)
+        else:
+            door = pygame.Rect(r.centerx - 6, r.centery - 9, 12, 18)
+            pygame.draw.rect(self._screen, YELLOW, door, 2)
+            pygame.draw.circle(self._screen, YELLOW, (r.centerx + 4, r.centery), 2)
 
     # --- HUD ---
     def _label(self, text: str, x: int, y: int, colour=WHITE) -> None:
@@ -273,66 +332,86 @@ class GameUI:
         self._screen.blit(surf, (x, y))
 
     def _draw_hud_top(self) -> None:
-        s = self._state
-        self._label(f"Déplacements : {s.move_count}", 4, 8)
-        self._label(f"Note : {s.score}", 180, 8)
+        s       = self._state
+        loading = self._loading_progress is not None
+
+        # ── Ligne 1 : stats jeu (blanc) + touches fléchées (gris, droite) ──
         info_col = (80, 255, 80) if s.info == "GAGNE" else (255, 80, 80) if s.info == "PERDU" else WHITE
-        self._label(f"Information : {s.info}", 280, 8, info_col)
-        self._label("← ↑ → ↓  pour se déplacer  |  R pour restart", 4, 32, GREY)
-        self._label(f"Seed : {self._current_seed}", 4, 56, GREY)
+        self._label(f"Déplacements : {s.move_count}", 4, 5)
+        self._label(f"Note : {s.score}", 220, 5)
+        self._label(f"Information : {s.info}", 340, 5, info_col)
+        keys_text = "← ↑ → ↓  déplacer   |   R restart"
+        self._label(keys_text, WIN_W - self._font.size(keys_text)[0] - 4, 5, GREY)
 
-    def _draw_hud_bot(self) -> None:
-        bot_y = HUD_TOP_H + GRID_H
-
-        # ── Ligne 1 : restart + seed ──────────────────────────────────
-        restart_rect = pygame.Rect(4, bot_y + 12, 70, 28)
+        # ── Ligne 2 : [Génération terrain] + seed (input) + stats IA ────────
+        restart_rect = pygame.Rect(4, 32, 160, 26)
         pygame.draw.rect(self._screen, DARK, restart_rect)
         pygame.draw.rect(self._screen, WHITE, restart_rect, 1)
-        self._label("restart", restart_rect.x + 6, restart_rect.y + 6)
+        self._label("Génération terrain", restart_rect.x + 8, restart_rect.y + 5)
         self._restart_rect = restart_rect
 
-        self._label("Seed :", 84, bot_y + 18, GREY)
-        input_rect = pygame.Rect(124, bot_y + 12, 80, 28)
+        self._label("Seed :", restart_rect.right + 8, 38)
+        input_rect = pygame.Rect(restart_rect.right + 56, 32, 100, 26)
         bg_col  = INPUT_ACTIVE_COL if self._seed_input_active else DARK
-        bdr_col = INPUT_BORDER_COL if self._seed_input_active else GREY
-        pygame.draw.rect(self._screen, bg_col, input_rect)
+        bdr_col = INPUT_BORDER_COL if self._seed_input_active else WHITE
+        pygame.draw.rect(self._screen, bg_col,  input_rect)
         pygame.draw.rect(self._screen, bdr_col, input_rect, 1)
         display_text = self._seed_input_text if self._seed_input_active else (
             str(self._current_seed) if self._current_seed is not None else ""
         )
-        self._label(display_text, input_rect.x + 4, input_rect.y + 6)
+        self._label(display_text, input_rect.x + 4, input_rect.y + 5)
         if self._seed_input_active and (pygame.time.get_ticks() // 500) % 2 == 0:
             cursor_x = input_rect.x + 4 + self._font.size(display_text)[0]
             pygame.draw.line(self._screen, WHITE,
-                             (cursor_x, input_rect.y + 4),
-                             (cursor_x, input_rect.y + 22), 1)
+                             (cursor_x, input_rect.y + 3),
+                             (cursor_x, input_rect.y + 21), 1)
         self._seed_input_rect = input_rect
-        self._label("↵ valider", input_rect.right + 6, bot_y + 18, GREY)
 
-        # ── Ligne 2 : boutons IA ──────────────────────────────────────
-        row2_y = bot_y + 52
+        # Stats IA à côté du champ seed
+        shown = 0
+        parts: list[str] = []
+        if self._ai_trails:
+            n     = len(self._ai_trails)
+            shown = max(0, self._anim_idx + 1)
+            parts.append(f"Trail {shown}/{n}")
+        if self._ai_trails and not loading and shown > 0:
+            trails_shown = self._ai_trails[:shown]
+            wins = sum(1 for t in trails_shown if t.get("won", False))
+            note = sum(t.get("score", 0) for t in trails_shown) / shown
+            parts.append(f"Victoires : {wins}/{shown}")
+            parts.append(f"Note moy : {note:.0f}")
+        elif self._ai_stats:
+            wins  = self._ai_stats["wins"]
+            total = self._ai_stats["total"]
+            note  = self._ai_stats["note_moy"]
+            parts.append(f"Victoires : {wins}/{total}")
+            parts.append(f"Note moy : {note:.0f}")
+        if parts:
+            self._label("   |   ".join(parts), input_rect.right + 12, 38)
+
+        # ── Ligne 3 : boutons IA ─────────────────────────────────────────────
+        row3_y = 64
 
         # [IA simple model]
-        ai_simple_rect = pygame.Rect(4, row2_y, 122, 28)
+        ai_simple_rect = pygame.Rect(4, row3_y, 122, 26)
         pygame.draw.rect(self._screen, DARK, ai_simple_rect)
         pygame.draw.rect(self._screen, CYAN, ai_simple_rect, 1)
-        self._label("IA simple model", ai_simple_rect.x + 4, ai_simple_rect.y + 6, CYAN)
+        self._label("IA simple model", ai_simple_rect.x + 4, ai_simple_rect.y + 5, CYAN)
         self._ai_simple_rect = ai_simple_rect
 
         # [IA multi model]
-        loading = self._loading_progress is not None
         multi_col = GREY if loading else CYAN
-        ai_multi_rect = pygame.Rect(132, row2_y, 116, 28)
+        ai_multi_rect = pygame.Rect(134, row3_y, 116, 26)
         pygame.draw.rect(self._screen, DARK, ai_multi_rect)
         pygame.draw.rect(self._screen, multi_col, ai_multi_rect, 1)
-        self._label("IA multi model", ai_multi_rect.x + 4, ai_multi_rect.y + 6, multi_col)
+        self._label("IA multi model", ai_multi_rect.x + 4, ai_multi_rect.y + 5, multi_col)
         self._ai_multi_rect = ai_multi_rect
 
         # [IA restart]
-        can_restart = (bool(self._ai_trails) or bool(self._ai_nets_cache)
-                       or self._ai_net is not None or self._ai_run_dir is not None)
+        can_restart = (bool(self._ai_nets_cache) or self._ai_net is not None
+                       or self._ai_run_dir is not None)
         rst_col = CYAN if (can_restart and not loading) else GREY
-        ai_restart_rect = pygame.Rect(254, row2_y, 90, 28)
+        ai_restart_rect = pygame.Rect(258, row3_y, 92, 26)
         pygame.draw.rect(self._screen, DARK, ai_restart_rect)
         pygame.draw.rect(self._screen, rst_col, ai_restart_rect, 1)
         if loading:
@@ -340,33 +419,18 @@ class GameUI:
             rst_label = f"Calcul{dots}"
         else:
             rst_label = "IA restart"
-        self._label(rst_label, ai_restart_rect.x + 4, ai_restart_rect.y + 6, rst_col)
+        self._label(rst_label, ai_restart_rect.x + 4, ai_restart_rect.y + 5, rst_col)
         self._ai_restart_rect = ai_restart_rect
 
-        # ── Ligne 3 : trail info + statistiques IA ───────────────────────
-        row3_y = bot_y + 86
-
+        # ── Ligne 4 : barre de chargement (espace toujours réservé) ──────
+        # L'espace y=96..103 est toujours réservé ; la barre n'est dessinée que pendant le chargement
         if loading:
-            # Barre de progression pendant le chargement
             bar_w = int(WIN_W * self._loading_progress)
-            pygame.draw.rect(self._screen, DARK, (0, row3_y, WIN_W, 8))
-            pygame.draw.rect(self._screen, CYAN, (0, row3_y, bar_w, 8))
+            pygame.draw.rect(self._screen, DARK, (0, 96, WIN_W, 8))
+            pygame.draw.rect(self._screen, CYAN, (0, 96, bar_w, 8))
 
-        # Stats IA (affichées pendant ET après chargement)
-        parts: list[str] = []
-        if self._ai_trails:
-            n     = len(self._ai_trails)
-            shown = max(0, self._anim_idx + 1)
-            parts.append(f"Trail {shown}/{n}")
-        if self._ai_stats:
-            wins  = self._ai_stats["wins"]
-            total = self._ai_stats["total"]
-            note  = self._ai_stats["note_moy"]
-            parts.append(f"Victoires : {wins}/{total}")
-            parts.append(f"Note moy : {note:.0f}")
-        if parts:
-            text_y = row3_y + (12 if loading else 2)
-            self._label("   |   ".join(parts), 4, text_y, GREY)
+    def _draw_hud_bot(self) -> None:
+        pass   # HUD bas supprimé — tous les boutons sont en HUD_TOP
 
     # ------------------------------------------------------------------
     def _run_ai_simple(self) -> None:
@@ -467,7 +531,8 @@ class GameUI:
                     nets_cache.append({"net": net, "color": cp["color"],
                                        "alpha": alpha, "stage_idx": s})
                     trails.append({"trail": trail, "color": cp["color"],
-                                   "alpha": alpha, "stage_idx": s})
+                                   "alpha": alpha, "stage_idx": s,
+                                   "won": won, "score": score})
                     # Mise à jour incrémentale — les trails sont visibles au fur et à mesure
                     self._ai_trails = list(trails)
                     self._loading_progress = (i + 1) / n
@@ -514,7 +579,8 @@ class GameUI:
                         wins      += 1
                         scores_sum += score
                     trails.append({"trail": trail, "color": entry["color"],
-                                   "alpha": entry["alpha"], "stage_idx": entry["stage_idx"]})
+                                   "alpha": entry["alpha"], "stage_idx": entry["stage_idx"],
+                                   "won": won, "score": score})
                     # Mise à jour incrémentale — trails et stats visibles au fur et à mesure
                     self._ai_trails        = list(trails)
                     self._loading_progress = (i + 1) / n
@@ -532,18 +598,21 @@ class GameUI:
         threading.Thread(target=_rerun, daemon=True).start()
 
     def _restart_ai_anim(self) -> None:
-        """Relance l'animation ou recalcule les trails pour le terrain courant.
+        """Efface les trails visibles puis recalcule les trails pour le terrain courant.
 
-        - Trails présents (terrain inchangé) → redémarre l'animation depuis le début.
-        - Nouveau terrain + nets en cache → rejoue les épisodes sans relire le disque.
-        - Nouveau terrain + run_dir connu, cache vide → rechargement complet depuis disque.
-        - Nouveau terrain + modèle simple → rejoue le modèle simple.
+        Les trails orange et rouge sont effacés immédiatement avant le recalcul.
+        - Nets en cache → rejoue les épisodes sans relire le disque.
+        - run_dir connu, cache vide → rechargement complet depuis disque.
+        - Modèle simple → rejoue le modèle simple.
         """
-        self._ai_stats = None   # toujours réinitialiser les stats au restart
-        if self._ai_trails:
-            self._anim_idx     = -1
-            self._anim_last_ms = pygame.time.get_ticks()
-        elif self._ai_nets_cache:
+        # Effacer immédiatement tous les trails visibles (orange + rouge)
+        self._ai_trail        = None
+        self._ai_trails       = []
+        self._ai_optimal_path = None
+        self._ai_stats        = None
+        self._anim_idx        = -1
+
+        if self._ai_nets_cache:
             self._rerun_from_cache(self._current_seed)
         elif self._ai_run_dir is not None:
             self._load_multi(self._ai_run_dir, self._current_seed)

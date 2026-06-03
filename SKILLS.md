@@ -103,10 +103,10 @@ Compile le jeu en exécutable Windows autonome (PyInstaller).
 | `run_one_episode_info_ppo(model, seed)` | Épisode PPO déterministe via `DungeonGymEnv` |
 | `scan_run_dir(run_dir)` | Checkpoints ordonnés dans un `*_run/` (`.pt` et `.zip`) |
 
-**Boutons IA dans l'UI :**
+**Boutons IA dans l'UI (HUD_TOP, sous le champ Seed) :**
 - `[IA simple model]` — file picker `.pt`/`.zip` → un épisode, trail orange + chemin rouge
 - `[IA multi model]` — directory picker `*_run/` → tous les checkpoints en thread de fond, animation incrémentale
-- `[IA restart]` — rejoue sur le terrain courant, met à jour trail ET chemin optimal
+- `[IA restart]` — efface trails orange+rouge, rejoue depuis le cache sur le terrain courant
 
 ---
 

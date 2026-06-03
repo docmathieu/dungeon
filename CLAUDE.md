@@ -618,3 +618,79 @@ Le chargement se fait silencieusement, l'animation joue une seule fois propremen
 Pendant le chargement, le bouton "IA restart" affiche un texte cyclique `"Calcul."` / `"Calcul.."` /
 `"Calcul..."` / `"Calcul"` (rotation toutes les 400ms via `pygame.time.get_ticks() // 400 % 4`).
 Revient à `"IA restart"` dès que `_loading_progress is None`. Bouton GREY pendant loading.
+
+---
+
+## Session 2026-06-03 — Sprites PNG + refonte UI + continuation entraînement
+
+### Tests : 362 tests, 0 échec
+
+### Nouveaux fichiers
+- `src/run_utils.py` — `_now()` et `_pretrained_label()` factorisés (partagés par `train.py` et `train_ppo.py`)
+- `assets/tiles/grass.png`, `rock.png`, `water.png` — tuiles terrain PNG
+- `assets/tiles/player.png` — guerrier pixel art 80×80 (généré avec Pillow : heaume, plastron, jambes)
+- `assets/tiles/castle.png` — porte de sortie PNG
+- `analyze/rename_run_from.py` — renomme un run PPO en ajoutant `_from_<ts>`
+
+### Modifications
+
+**`src/run_utils.py`** (nouveau) :
+- `_now()` et `_pretrained_label()` extraits de `train.py` où ils étaient dupliqués dans `train_ppo.py`
+- `train.py` et `train_ppo.py` importent depuis `run_utils` — `curriculum.py` inchangé
+
+**`src/train_ppo.py`** :
+- Correction : `_from_<ts>` ajouté au nom du run quand `--pretrained` est fourni
+- `_pretrained_ts()` et `_now()` locales supprimées (→ `run_utils`)
+
+**`src/ui.py`** — refonte complète :
+
+*Sprites PNG :*
+- `_ASSETS_DIR` = `assets/tiles/` (relatif à `ui.py`)
+- `_load_tile_surfaces()` : grass/rock/water.png → dict `{TileType → Surface}`, fallback couleur si absent
+- `_load_sprite(filename)` : charge player.png ou castle.png, redimensionné à `TILE_PX×TILE_PX`
+- `_draw_grid()` : blit PNG → `draw.rect` coloré (fallback)
+- `_draw_character()` : blit `player.png` (fallback : stick figure jaune)
+- `_draw_castle()` : renommée depuis `_draw_exit()`, blit `castle.png` (fallback : porte jaune)
+
+*Paramètres visuels :*
+- `TILE_PX = 80` (cases doublées), `SEP_PX = 0` (plus de séparateur)
+- `TRAIL_WIDTH = 3`, `TRAIL_OFFSET = 5`
+- Trails : rouge `(−5,−5)` gauche / jaune `(0,0)` centre / orange `(+5,+5)` droite
+- Surface multi-trails : colorkey + `set_alpha` remplace SRCALPHA (garantit TRAIL_WIDTH effectif)
+
+*Correction compteur victoires :*
+- `won` et `score` stockés dans chaque dict de trail
+- Stats affichées synchronisées avec l'animation (`_ai_trails[:shown]`), plus figées en fin de chargement
+
+*Refonte HUD :*
+- `HUD_TOP_H = 108`, `HUD_BOT_H = 0` (HUD bas supprimé)
+- Ligne 1 : Déplacements / Note / Information + touches fléchées (gris, aligné droite)
+- Ligne 2 : `[Génération terrain]` + `Seed:[input]` + `Trail X/N | Victoires Y/N | Note moy ZZ`
+- Ligne 3 : `[IA simple model]` `[IA multi model]` `[IA restart]`
+- Ligne 4 : barre de chargement 8px (espace toujours réservé, dessinée seulement si loading)
+- Tous les textes en blanc sauf touches fléchées (gris)
+- "IA restart" efface les trails orange+rouge avant de recalculer
+
+### Entraînement CNN full-random — run en cours (2026-06-03)
+- Commande : `--pretrained 20260602_1556_run/final.zip --architecture cnn --lr 1e-4 --n-envs 8 --timesteps 5000000`
+- Dossier : `models/20260603_0811_run/20260603_0811_ppo_random_cnn_ts5000000/`
+- ⚠️ À renommer : `analyze/rename_run_from.py --run models/20260603_0811_run/20260603_0811_ppo_random_cnn_ts5000000 --from-ts 20260602_1556`
+- Baseline avant ce run : **30.8% stoch ×3** seeds 100–299 (cohérent avec les 32.2% d'hier)
+
+### Prochaines étapes
+1. **Commit + push** du code (tous les changements 2026-06-03)
+2. **Renommage du run** : `python analyze/rename_run_from.py --run models/20260603_0811_run/20260603_0811_ppo_random_cnn_ts5000000 --from-ts 20260602_1556`
+3. **Analyser le run** une fois terminé : `python analyze/evaluate.py --checkpoint models/20260603_0811_run/.../final.zip --seeds 100-299 --n-episodes 3 --stochastic`
+
+### Roadmap RL — état mis à jour
+1. DungeonEnv ✅
+2. Entraînement DQN ✅
+3. Task-conditioning / FiLM / ObsDQNetwork ✅
+4. Visualisation pygame ✅ — sprites PNG, HUD redesigné
+5. PPO Stable-Baselines3 ✅ — percée : 89% max, pas de catastrophic forgetting
+6. UI PPO (.zip) ✅
+7. evaluate.py ✅
+8. PPO MLP pool100 2M ts ✅ — 35% training, 3% inconnus det
+9. PPO CNN pool100 2M ts ✅ — 76% training, 3% inconnus det
+10. PPO CNN full-random 2M ts ✅ — baseline 30.8% stoch seeds inconnus
+11. **PPO CNN full-random +5M ts** ← en cours (run 20260603_0811)

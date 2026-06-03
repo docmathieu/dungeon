@@ -24,15 +24,17 @@ src/
 ```
 
 Fonctionnalités couvertes :
-- Grille pygame 10×10, cases 40px, séparateurs 1px, fond noir
+- Grille pygame 10×10, cases 80px, séparateurs 0px, fond noir
 - Herbe/Pierre/Eau avec répartition aléatoire et seed reproductible
 - Personnage et sortie placés aléatoirement sur cases herbe
 - Restart automatique si Dijkstra ne trouve aucun chemin (`create_solvable`)
-- Trail jaune = chemin du joueur ; trail rouge (+2px) = chemin optimal, visible en fin de partie
+- Trail jaune = chemin du joueur (centré) ; trail orange = IA (+5px droite) ; trail rouge = optimal (−5px gauche), tous 3px
 - Score 0-100 : `round(100 × optimal_cost / player_cost)`, 100 = chemin optimal
 - Choc contre un rocher ou bord de grille : `move_count += 1`, position inchangée, trail inchangé
-- Interface : labels déplacements/note/information, légende touches, bouton restart uniquement
+- Interface HUD_TOP (108px) : ligne stats+touches | ligne Seed+stats IA | boutons IA | barre chargement
+- Interface HUD_BOT (48px) : bouton "Génération terrain" uniquement
 - Contrôle : touches fléchées → `apply_move()` direct (pas de thread, pas de queue dans l'UI)
+- Sprites PNG : `assets/tiles/` — grass.png, rock.png, water.png, player.png, castle.png
 
 Contraintes imposées à l'agent :
 - `directions.py`, `grid.py`, `game_state.py`, `pathfinder.py`, `simulation.py` : aucun import pygame
@@ -357,10 +359,10 @@ Tests : `tests/test_exploit.py` (55 tests)
 - Supporte les checkpoints DQN (`.pt`) et PPO (`.zip`) dans le même run
 - Tri numérique : `ep{N}.pt` et `ppo_{N}_steps.zip` → N, `final.*` → +∞
 
-**Boutons IA dans l'UI :**
+**Boutons IA dans l'UI (ligne 3 du HUD_TOP, sous le champ seed) :**
 - `[IA simple model]` : file picker acceptant `.pt` et `.zip` → joue un épisode, affiche trail orange + chemin rouge
 - `[IA multi model]` : directory picker `*_run/` → charge TOUS les checkpoints (DQN et/ou PPO) en thread de fond → animation incrémentale 200ms/trail + barre de progression
-- `[IA restart]` : rejoue le(s) modèle(s) chargé(s) sur le terrain courant ; met à jour trail ET chemin optimal
+- `[IA restart]` : efface trails orange+rouge, rejoue le(s) modèle(s) chargé(s) sur le terrain courant depuis le cache
 
 ---
 

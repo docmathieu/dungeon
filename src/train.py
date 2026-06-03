@@ -41,6 +41,7 @@ sys.path.insert(0, os.path.dirname(__file__))
 
 from dungeon_env import DungeonEnv, ACTIONS
 from model import DQNetwork, FiLMDQNetwork, ObsDQNetwork, INPUT_DIM, OBS_DIM
+from run_utils import _now, _pretrained_label
 
 
 # Nombre de bits du one-hot seed (task-conditioning) — doit correspondre à INPUT_DIM
@@ -294,11 +295,6 @@ class DQNAgent:
 # Nommage des runs
 # ---------------------------------------------------------------------------
 
-def _now() -> str:
-    """Retourne le timestamp courant au format yyyymmdd_hhmm."""
-    return time.strftime("%Y%m%d_%H%M")
-
-
 def _run_label(seed: int | None, seed_pool: list[int] | None) -> str:
     """Retourne le label de seed : 'seed42', 'pool10', ou 'random'."""
     if seed_pool is not None:
@@ -306,17 +302,6 @@ def _run_label(seed: int | None, seed_pool: list[int] | None) -> str:
     if seed is not None:
         return f"seed{seed}"
     return "random"
-
-
-def _pretrained_label(pretrained: "Path | None") -> str:
-    """Extrait le timestamp du dossier pretrained pour le suffixe _from_.
-
-    Path('models/20260527_1222_seed42_ep2000/final.pt') → '20260527_1222'
-    None → ''
-    """
-    if pretrained is None:
-        return ""
-    return pretrained.parent.name[:13]
 
 
 def _run_name(
