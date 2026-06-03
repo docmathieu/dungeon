@@ -207,11 +207,12 @@ class LogCallback(BaseCallback):
     PRINT_FREQ   = 10_000
     WIN_RATE_WIN = 100   # fenêtre glissante pour le win rate affiché
 
-    def __init__(self, log_path: Path, total_timesteps: int, t0: float):
+    def __init__(self, log_path: Path, total_timesteps: int, t0: float, lr: float = LEARNING_RATE):
         super().__init__()
         self._log_path        = log_path
         self._total           = total_timesteps
         self._t0              = t0
+        self._lr              = lr
         self._ep              = 0
         self._last_print_ts   = 0
         self._recent_scores: deque[int] = deque(maxlen=self.WIN_RATE_WIN)
@@ -225,7 +226,7 @@ class LogCallback(BaseCallback):
             "type": "meta",
             "hyperparams": {
                 "timesteps":  self._total,
-                "lr":         LEARNING_RATE,
+                "lr":         self._lr,
                 "n_steps":    N_STEPS,
                 "batch_size": BATCH_SIZE,
                 "n_epochs":   N_EPOCHS,
@@ -361,7 +362,7 @@ def train(
 
     t0 = time.time()
     callbacks = [
-        LogCallback(log_path, timesteps, t0),
+        LogCallback(log_path, timesteps, t0, lr=lr),
         CheckpointCallback(
             save_freq=max(CHECKPOINT_FREQ // n_envs, 1),
             save_path=str(model_dir),

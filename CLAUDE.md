@@ -671,16 +671,19 @@ Revient à `"IA restart"` dès que `_loading_progress is None`. Bouton GREY pend
 - Tous les textes en blanc sauf touches fléchées (gris)
 - "IA restart" efface les trails orange+rouge avant de recalculer
 
-### Entraînement CNN full-random — run en cours (2026-06-03)
+### Entraînement CNN full-random — run terminé (2026-06-03)
 - Commande : `--pretrained 20260602_1556_run/final.zip --architecture cnn --lr 1e-4 --n-envs 8 --timesteps 5000000`
-- Dossier : `models/20260603_0811_run/20260603_0811_ppo_random_cnn_ts5000000/`
-- ⚠️ À renommer : `analyze/rename_run_from.py --run models/20260603_0811_run/20260603_0811_ppo_random_cnn_ts5000000 --from-ts 20260602_1556`
-- Baseline avant ce run : **30.8% stoch ×3** seeds 100–299 (cohérent avec les 32.2% d'hier)
+- Dossier : `models/20260603_0811_run/20260603_0811_ppo_random_cnn_ts5000000_from_20260602_1556/`
+- ⚠️ Bug découvert et corrigé : `LogCallback` loggait `LEARNING_RATE` (constante 3e-4) au lieu du lr effectif. La ligne `meta` de ce run affiche `lr=0.0003` mais l'entraînement s'est bien déroulé à `lr=1e-4`. Les résultats restent valides.
+- Baseline avant ce run : **30.8% stoch ×3** seeds 100–299
 
-### Prochaines étapes
-1. **Commit + push** du code (tous les changements 2026-06-03)
-2. **Renommage du run** : `python analyze/rename_run_from.py --run models/20260603_0811_run/20260603_0811_ppo_random_cnn_ts5000000 --from-ts 20260602_1556`
-3. **Analyser le run** une fois terminé : `python analyze/evaluate.py --checkpoint models/20260603_0811_run/.../final.zip --seeds 100-299 --n-episodes 3 --stochastic`
+**Résultats (seeds 100–299 inconnus) :**
+| Mode | Win rate | Score moy wins |
+|---|---|---|
+| Déterministe | **56%** | 93.7 |
+| Stochastique ×3 | **73.2%** | 78.1 |
+
+Win rate online en fin de run : ~68% (plateau entre 3M–5M ts, +5 pts sur les 2 derniers millions).
 
 ### Roadmap RL — état mis à jour
 1. DungeonEnv ✅
@@ -693,4 +696,5 @@ Revient à `"IA restart"` dès que `_loading_progress is None`. Bouton GREY pend
 8. PPO MLP pool100 2M ts ✅ — 35% training, 3% inconnus det
 9. PPO CNN pool100 2M ts ✅ — 76% training, 3% inconnus det
 10. PPO CNN full-random 2M ts ✅ — baseline 30.8% stoch seeds inconnus
-11. **PPO CNN full-random +5M ts** ← en cours (run 20260603_0811)
+11. PPO CNN full-random +5M ts ✅ — **56% det, 73.2% stoch** seeds inconnus (run 20260603_0811, lr=1e-4)
+12. **Continuer entraînement ou nouvelle piste** ← prochaine session

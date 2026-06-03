@@ -83,6 +83,7 @@ Compile le jeu en exécutable Windows autonome (PyInstaller).
 
 **Logs** : `{"episode", "timestep", "seed", "won", "score", "moves", "reward"}` — même format que DQN.
 **Checkpoints** : `.zip` (SB3) tous les 50k timesteps + `final.zip`
+⚠️ Bug corrigé (2026-06-03) : la ligne `meta` loggait `LEARNING_RATE` (constante 3e-4) au lieu du lr passé en argument. L'entraînement lui-même utilisait le bon lr. Fix : `LogCallback` reçoit maintenant `lr=lr`.
 
 **`analyze/evaluate.py`** supporte les deux formats :
 - `.pt` → DQN (inchangé)

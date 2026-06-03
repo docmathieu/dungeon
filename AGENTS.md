@@ -284,6 +284,7 @@ Auto-détection dans `exploit.py` et `evaluate.py` via `model.observation_space.
 {"episode": 42, "timestep": 3800, "seed": 0, "won": true, "score": 100, "moves": 8, "reward": 0.93}
 ```
 Affichage toutes les 10 000 timesteps : `ts X/N  ep=N  wr=X%  t=Xs`
+⚠️ Bug corrigé (2026-06-03) : la ligne `meta` loggait la constante `LEARNING_RATE` (3e-4) au lieu du lr effectif. Passer `lr=lr` au constructeur `LogCallback` — l'entraînement lui-même était correct.
 
 **Hyperparamètres PPO** (défauts) :
 - `N_STEPS=2048`, `BATCH_SIZE=64`, `N_EPOCHS=10`
