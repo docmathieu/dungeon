@@ -60,7 +60,7 @@ class GameUI:
     def __init__(self):
         pygame.init()
         self._screen = pygame.display.set_mode((WIN_W, WIN_H))
-        pygame.display.set_caption("Dungeon")
+        pygame.display.set_caption("Dungeon RL")
         self._font = pygame.font.SysFont("Arial", 16)
         self._clock = pygame.time.Clock()
         self._tile_surfaces  = self._load_tile_surfaces()
