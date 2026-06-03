@@ -93,8 +93,8 @@ Entrée (10×10×5)
 
 | Mode évaluation | Seeds entraînement | Seeds inconnus |
 |---|---|---|
-| Déterministe | ~8% | **66.5%** |
-| Stochastique ×3 | — | **81.5%** |
+| Déterministe | ~8% | **73.0%** |
+| Stochastique ×3 | — | **85.8%** |
 
 Le modèle généralise sur des terrains jamais vus, avec un score moyen de 95/100 sur les victoires en déterministe (chemin quasi-optimal).
 
@@ -107,7 +107,7 @@ Le modèle généralise sur des terrains jamais vus, avec un score moyen de 95/1
 | Seed unique | Convergence rapide (<2000 ep) | ✅ fonctionne |
 | Pool fixe de seeds + curriculum | 59% max, forgetting au-delà de pool3 | ✅ testé, limité |
 | Pool fixe + PPO | 76% training, 3% inconnus | ✅ testé |
-| **Full random (seed=None) + PPO + CNN** | **66.5% inconnus déterministe** | ✅ **retenu** |
+| **Full random (seed=None) + PPO + CNN** | **73.0% inconnus déterministe** | ✅ **retenu** |
 
 La clé de la généralisation n'était ni l'architecture ni l'algorithme seuls, mais la **diversité maximale des terrains** combinée au CNN. En voyant un terrain différent à chaque épisode, l'agent ne peut pas mémoriser — il doit apprendre une vraie stratégie de navigation.
 
@@ -181,7 +181,7 @@ La configuration qui a donné les meilleurs résultats de généralisation est *
 | Run 1 (from scratch) | 5M | 10.5% |
 | Run 2 | 10M | 56.0% |
 | Run 3 | 15M | 66.5% |
-| Run 4 (en cours) | 20M | — |
+| Run 4 | 20M | **73.0%** |
 
 ---
 

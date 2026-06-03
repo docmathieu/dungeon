@@ -685,16 +685,29 @@ Revient à `"IA restart"` dès que `_loading_progress is None`. Bouton GREY pend
 
 Win rate online en fin de run : ~68% (plateau entre 3M–5M ts, +5 pts sur les 2 derniers millions).
 
+### Runs CNN full-random enchaînés (session 2026-06-03)
+
+| Run | Dossier | Timesteps cumulés | Det seeds inconnus | Stoch ×3 seeds inconnus | Score moy wins (det) |
+|---|---|---|---|---|---|
+| Run 1 | 20260602_1556 | 5M | 10.5% | 32.2% | 94.5 |
+| Run 2 | 20260603_0811 | 10M | 56.0% | 73.2% | 93.7 |
+| Run 3 | 20260603_1448 | 15M | 66.5% | 81.5% | 95.0 |
+| Run 4 | 20260603_1608 | 20M | **73.0%** | **85.8%** | **95.1** |
+
+Progression régulière (~+10 pts/run en det), pas de plateau observé. Prochain run à envisager pour atteindre 80% det.
+
 ### Roadmap RL — état mis à jour
 1. DungeonEnv ✅
 2. Entraînement DQN ✅
 3. Task-conditioning / FiLM / ObsDQNetwork ✅
-4. Visualisation pygame ✅ — sprites PNG, HUD redesigné
+4. Visualisation pygame ✅ — sprites PNG, HUD redesigné, titre "Dungeon RL"
 5. PPO Stable-Baselines3 ✅ — percée : 89% max, pas de catastrophic forgetting
 6. UI PPO (.zip) ✅
 7. evaluate.py ✅
 8. PPO MLP pool100 2M ts ✅ — 35% training, 3% inconnus det
 9. PPO CNN pool100 2M ts ✅ — 76% training, 3% inconnus det
 10. PPO CNN full-random 2M ts ✅ — baseline 30.8% stoch seeds inconnus
-11. PPO CNN full-random +5M ts ✅ — **56% det, 73.2% stoch** seeds inconnus (run 20260603_0811, lr=1e-4)
-12. **Continuer entraînement ou nouvelle piste** ← prochaine session
+11. PPO CNN full-random +5M ts ✅ — 56% det, 73.2% stoch (run 0811, 10M ts cumulés)
+12. PPO CNN full-random +5M ts ✅ — 66.5% det, 81.5% stoch (run 1448, 15M ts cumulés)
+13. PPO CNN full-random +5M ts ✅ — **73.0% det, 85.8% stoch** (run 1608, 20M ts cumulés)
+14. **Continuer l'entraînement → objectif 80% det** ← prochaine session
