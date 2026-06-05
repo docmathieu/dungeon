@@ -732,3 +732,4 @@ jamais vus, avec un score moyen de 94.8 (chemin quasi-optimal). En mode stochast
 13. PPO CNN full-random +5M ts ✅ — 73.0% det, 85.8% stoch (run 1608, 20M ts cumulés)
 14. PPO CNN full-random +5M ts ✅ — 78.5% det, 89.0% stoch (run 1417, 25M ts cumulés)
 15. **PPO CNN full-random +5M ts ✅ — 85.0% det, 90.0% stoch** (run 1600, 30M ts cumulés) ← objectif atteint
+16. **Continuer l'entraînement → objectif 90% det** ← prochaine session
