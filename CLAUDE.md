@@ -685,16 +685,36 @@ Revient à `"IA restart"` dès que `_loading_progress is None`. Bouton GREY pend
 
 Win rate online en fin de run : ~68% (plateau entre 3M–5M ts, +5 pts sur les 2 derniers millions).
 
-### Runs CNN full-random enchaînés (session 2026-06-03)
+### Runs CNN full-random enchaînés (sessions 2026-06-03 et 2026-06-05)
 
 | Run | Dossier | Timesteps cumulés | Det seeds inconnus | Stoch ×3 seeds inconnus | Score moy wins (det) |
 |---|---|---|---|---|---|
 | Run 1 | 20260602_1556 | 5M | 10.5% | 32.2% | 94.5 |
 | Run 2 | 20260603_0811 | 10M | 56.0% | 73.2% | 93.7 |
 | Run 3 | 20260603_1448 | 15M | 66.5% | 81.5% | 95.0 |
-| Run 4 | 20260603_1608 | 20M | **73.0%** | **85.8%** | **95.1** |
+| Run 4 | 20260603_1608 | 20M | 73.0% | 85.8% | 95.1 |
+| Run 5 | 20260605_1417 | 25M | 78.5% | 89.0% | 95.3 |
+| **Run 6** | **20260605_1600** | **30M** | **85.0%** | **90.0%** | **94.8** |
 
-Progression régulière (~+10 pts/run en det), pas de plateau observé. Prochain run à envisager pour atteindre 80% det.
+Objectif **80% det atteint et dépassé** au Run 6 (30M ts cumulés). Progression régulière ~+6 pts/run.
+
+---
+
+## Session 2026-06-05 — Runs 5 et 6 CNN full-random
+
+### Runs
+- **Run 5** (`20260605_1417`) : +5M ts depuis run 4, `--lr 1e-4 --n-envs 8`
+- **Run 6** (`20260605_1600`) : +5M ts depuis run 5, `--lr 1e-4 --n-envs 8`
+
+### Résultats
+
+| Run | ts cumulés | Det seeds inconnus | Stoch ×3 seeds inconnus | Score moy wins (det) |
+|-----|-----------|-------------------|------------------------|---------------------|
+| Run 5 | 25M | 78.5% | 89.0% | 95.3 |
+| **Run 6** | **30M** | **85.0%** | **90.0%** | **94.8** |
+
+**Objectif 80% déterministe atteint et dépassé.** Le modèle gagne 85% des parties sur des seeds
+jamais vus, avec un score moyen de 94.8 (chemin quasi-optimal). En mode stochastique : 90%.
 
 ### Roadmap RL — état mis à jour
 1. DungeonEnv ✅
@@ -709,5 +729,6 @@ Progression régulière (~+10 pts/run en det), pas de plateau observé. Prochain
 10. PPO CNN full-random 2M ts ✅ — baseline 30.8% stoch seeds inconnus
 11. PPO CNN full-random +5M ts ✅ — 56% det, 73.2% stoch (run 0811, 10M ts cumulés)
 12. PPO CNN full-random +5M ts ✅ — 66.5% det, 81.5% stoch (run 1448, 15M ts cumulés)
-13. PPO CNN full-random +5M ts ✅ — **73.0% det, 85.8% stoch** (run 1608, 20M ts cumulés)
-14. **Continuer l'entraînement → objectif 80% det** ← prochaine session
+13. PPO CNN full-random +5M ts ✅ — 73.0% det, 85.8% stoch (run 1608, 20M ts cumulés)
+14. PPO CNN full-random +5M ts ✅ — 78.5% det, 89.0% stoch (run 1417, 25M ts cumulés)
+15. **PPO CNN full-random +5M ts ✅ — 85.0% det, 90.0% stoch** (run 1600, 30M ts cumulés) ← objectif atteint
