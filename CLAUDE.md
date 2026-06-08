@@ -700,6 +700,74 @@ Objectif **80% det atteint et dépassé** au Run 6 (30M ts cumulés). Progressio
 
 ---
 
+## Session 2026-06-08 — Run 7, analyse des échecs, Dijkstra reward shaping
+
+### Tests : 362 tests, 0 échec
+
+### Run 7 — PPO CNN full-random +5M ts (35M cumulés)
+- Commande : `--pretrained models/20260605_1600_run/.../final.zip --architecture cnn --lr 1e-4 --n-envs 8 --timesteps 5000000`
+- Dossier : `models/20260608_0922_run/20260608_0922_ppo_random_cnn_ts5000000_from_20260605_1600/`
+- Win rate online : stable 82–97%, plateau confirmé
+
+| Métrique | Run 6 (30M ts) | Run 7 (35M ts) |
+|---|---|---|
+| Det seeds inconnus 100–499 | 85.0% | 81.0% |
+| Stoch ×3 seeds inconnus | 90.0% | 89.5% |
+| Score moy wins (det) | 94.8 | 95.9 |
+
+→ Plateau structurel autour de 81–85% det. Le gain marginal justifie d'explorer d'autres leviers.
+
+### Analyse des échecs — `analyze/analyze_failures.py` (nouveau)
+
+Script qui croise résultat du modèle (won/loss) et métriques terrain (Dijkstra, détour, eau)
+pour identifier ce qui rend un terrain difficile.
+
+```bash
+.venv\Scripts\python.exe analyze/analyze_failures.py \
+    --checkpoint models/.../final.zip --seeds 100-499
+```
+
+**Diagnostic (400 seeds, 318 victoires / 82 échecs) :**
+
+| Groupe de difficulté | Win rate |
+|---------------------|---------|
+| Facile (coût 1–8) | **96.9%** |
+| Rochers (coût 9–12) | **81.4%** |
+| Mixte (coût 13–16) | **68.9%** |
+| Complexe (coût 17–20) | **25.8%** |
+| Difficile (coût 21+) | **5.9%** |
+
+Le problème est la **planification longue distance** :
+- Coût optimal moyen victoires : 7.6 vs **16.1** pour les échecs
+- Détour rochers moyen victoires : 0.8 vs **5.4** pour les échecs
+- Eau sur chemin optimal moyen victoires : 1.1 vs **2.8** pour les échecs
+- Total rochers/eau identique (30/20) — c'est la **position** des obstacles qui compte, pas leur quantité
+
+### Dijkstra reward shaping — `dungeon_env.py`
+
+**Motivation :** l'agent n'avait aucun signal positif pendant l'épisode (uniquement `-0.01` par pas
+et `-0.05` par choc). Sur un chemin de 20+ moves, il lui manque un guidage actif vers la sortie.
+La distance Manhattan pose un problème sur les terrains avec détours obligatoires : s'éloigner
+ponctuellement est pénalisé même si c'est la bonne décision. Dijkstra intègre les obstacles
+et ne pénalise pas les contournements nécessaires.
+
+**Nouveau signal :**
+```
+déplacement normal → REWARD_STEP (-0.01) + (dijkstra_avant - dijkstra_après) × REWARD_PROGRESS_SCALE (0.10)
+```
+
+Exemples :
+- Pas optimal sur herbe : `−0.01 + 1×0.10 = +0.09`
+- Pas optimal sur eau : `−0.01 + 2×0.10 = +0.19`
+- Pas s'éloignant de la sortie : `−0.01 + négatif` (plus pénalisant)
+- Choc : Dijkstra inchangé → shaping = 0 → reward reste `−0.05`
+- Victoire : reward reste `score / 100.0` (inchangé)
+
+**Constantes exportées :** `REWARD_STEP`, `REWARD_BUMP`, `REWARD_PROGRESS_SCALE`
+**PathFinder** réutilisé (instance unique `_pf`) — recalcul Dijkstra uniquement sur déplacement réel.
+
+---
+
 ## Session 2026-06-05 — Runs 5 et 6 CNN full-random
 
 ### Runs
@@ -732,4 +800,6 @@ jamais vus, avec un score moyen de 94.8 (chemin quasi-optimal). En mode stochast
 13. PPO CNN full-random +5M ts ✅ — 73.0% det, 85.8% stoch (run 1608, 20M ts cumulés)
 14. PPO CNN full-random +5M ts ✅ — 78.5% det, 89.0% stoch (run 1417, 25M ts cumulés)
 15. **PPO CNN full-random +5M ts ✅ — 85.0% det, 90.0% stoch** (run 1600, 30M ts cumulés) ← objectif atteint
-16. **Continuer l'entraînement → objectif 90% det** ← prochaine session
+16. **PPO CNN full-random +5M ts ✅ — 81.0% det, 89.5% stoch** (run 0922, 35M ts cumulés) — plateau confirmé
+17. **Dijkstra reward shaping ✅** — `REWARD_PROGRESS_SCALE=0.10` dans `dungeon_env.py`
+18. **Lancer Run 8 avec reward shaping** ← prochaine étape

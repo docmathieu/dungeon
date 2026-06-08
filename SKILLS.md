@@ -180,6 +180,58 @@ Les anciennes runs MLP restent 100% utilisables (rétrocompatibilité).
 
 ---
 
+## Dijkstra reward shaping (2026-06-08) ✅
+
+`src/dungeon_env.py` — signal de progression ajouté au reward intermédiaire.
+
+**Motivation :** sans signal positif pendant l'épisode, l'agent manque de guidage sur les chemins
+longs (20+ moves). La distance Manhattan est inadaptée aux terrains avec détours obligatoires
+(contourner un rocher augmente temporairement la distance → signal négatif sur la bonne décision).
+
+**Solution :** utiliser le coût Dijkstra depuis la position courante jusqu'à la sortie.
+Dijkstra intègre les obstacles — un contournement nécessaire est toujours récompensé.
+
+**Nouveau reward intermédiaire :**
+```
+déplacement normal → REWARD_STEP + (dijkstra_avant - dijkstra_après) × REWARD_PROGRESS_SCALE
+```
+
+| Situation | Reward |
+|-----------|--------|
+| Pas optimal sur herbe | `−0.01 + 0.10 = +0.09` |
+| Pas optimal sur eau | `−0.01 + 0.20 = +0.19` |
+| Choc mur/bord | `−0.05` (inchangé, Dijkstra = 0) |
+| Victoire | `score / 100.0` (inchangé) |
+
+Constante exportée : `REWARD_PROGRESS_SCALE = 0.10`
+PathFinder réutilisé (`_pf` = instance unique) — recalcul uniquement sur déplacement réel.
+
+---
+
+## Analyse des échecs (2026-06-08) ✅
+
+`analyze/analyze_failures.py` — diagnostic des terrains difficiles pour le modèle.
+
+```bash
+.venv\Scripts\python.exe analyze/analyze_failures.py \
+    --checkpoint models/.../final.zip --seeds 100-499
+```
+
+**Résultat (400 seeds, Run 7) :**
+
+| Groupe | Win rate |
+|--------|---------|
+| Facile (coût 1–8) | 96.9% |
+| Rochers (coût 9–12) | 81.4% |
+| Mixte (coût 13–16) | 68.9% |
+| Complexe (coût 17–20) | 25.8% |
+| Difficile (coût 21+) | 5.9% |
+
+Le modèle échoue sur les chemins longs avec beaucoup de détours/eau — problème de planification
+longue distance. Le reward shaping Dijkstra vise directement ce problème.
+
+---
+
 ## Prochaine étape : Full random seeds
 
 ```bash

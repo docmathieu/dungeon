@@ -8,7 +8,7 @@ Removed : tests sur états internes avant reset (state_none, steps_zero, default
 """
 import pytest
 
-from dungeon_env import DungeonEnv, ACTIONS, REWARD_STEP, REWARD_BUMP
+from dungeon_env import DungeonEnv, ACTIONS, REWARD_STEP, REWARD_BUMP, REWARD_PROGRESS_SCALE
 from game_state import GameState
 from grid import Grid
 
@@ -115,11 +115,14 @@ class TestDungeonEnvStep:
         assert set(obs.keys()) == {"grid", "char_pos", "exit_pos"}
         assert len(obs["grid"]) == 100
 
-    def test_reward_negative_on_non_terminal_step(self):
+    def test_reward_negative_on_bump(self):
+        # Un choc (position inchangée) doit toujours donner REWARD_BUMP < 0
         env = make_env(seed=0)
-        _, reward, done, _ = env.step("UP")
-        if not done:
-            assert reward < 0.0
+        env._state.char_pos = (0, 0)
+        env._state.exit_pos = (9, 9)
+        _, reward, _, _ = env.step("UP")   # bord nord → choc garanti
+        assert reward == pytest.approx(REWARD_BUMP)
+        assert reward < 0.0
 
     def test_done_true_at_max_steps(self):
         env = DungeonEnv(seed=0, max_steps=1)
@@ -132,12 +135,18 @@ class TestDungeonEnvStep:
         for key in ("score", "moves", "steps", "won"):
             assert key in info
 
-    def test_reward_normal_step_is_reward_step(self):
+    def test_reward_normal_step_includes_dijkstra_progress(self):
+        # Un pas le long du chemin optimal réduit le coût Dijkstra → shaping positif
         env = make_env(seed=0)
-        direction = moves_from_path(env._state.optimal_path[:2])[0]
+        direction  = moves_from_path(env._state.optimal_path[:2])[0]
+        cost_before = env._dijkstra_cost
         _, reward, done, _ = env.step(direction)
         if not done:
-            assert reward == pytest.approx(REWARD_STEP)
+            cost_after   = env._dijkstra_cost
+            progress     = cost_before - cost_after
+            expected     = REWARD_STEP + progress * REWARD_PROGRESS_SCALE
+            assert reward == pytest.approx(expected)
+            assert progress > 0   # un pas optimal rapproche toujours de la sortie
 
     def test_reward_boundary_bump_is_reward_bump(self):
         env = make_env(seed=0)

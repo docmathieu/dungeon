@@ -123,11 +123,15 @@ env = DungeonEnv(seed_pool=[...])   # tirage dans un ensemble fixe
 
 obs              = env.reset()      # → dict {grid, char_pos, exit_pos}
 obs, reward, done, info = env.step("RIGHT")
-# reward : victoire → score/100.0 (1.0=optimal)
-#          déplacement normal → -0.01
-#          choc mur/bord      → -0.05
+# reward : victoire            → score/100.0 (1.0=optimal)
+#          choc mur/bord       → REWARD_BUMP  (-0.05)
+#          déplacement normal  → REWARD_STEP (-0.01)
+#                                + (dijkstra_avant - dijkstra_après) × REWARD_PROGRESS_SCALE (0.10)
+#          ex. pas optimal herbe → +0.09 | pas optimal eau → +0.19
 # done   = True si victoire ou steps >= max_steps (défaut 100)
 ```
+
+Constantes exportées : `REWARD_STEP`, `REWARD_BUMP`, `REWARD_PROGRESS_SCALE`.
 
 Observation :
 - `grid` : list[int] de 100 valeurs (0=HERBE, 1=ROCHE, 2=EAU), ordre ligne-major
@@ -435,6 +439,31 @@ vu une fois en (2,3), généralisé en (7,8) automatiquement. L'inductive bias s
 - CNN améliore massivement la mémorisation (+41 pts training) mais pas la généralisation (3% = 3%)
 - Le vrai blocage est la planification globale, pas l'invariance spatiale
 - Prochaine piste : `--seed None` (full random) pour forcer une vraie stratégie générale
+
+### `analyze/analyze_failures.py` *(ajouté 2026-06-08)*
+**Objectif** : identifier ce qui caractérise les terrains que le modèle échoue à résoudre.
+
+Croise le résultat du modèle (won/loss) et les métriques terrain (coût Dijkstra, détour rochers,
+eau sur chemin) pour chaque seed évalué. Affiche distributions comparées victoires vs échecs
+et win rate par tranche de difficulté.
+
+**Usage** :
+```bash
+.venv\Scripts\python.exe analyze/analyze_failures.py \
+    --checkpoint models/.../final.zip --seeds 100-499
+```
+
+**Options** :
+- `--seeds` : plage (ex: `100-499`) ou liste (ex: `0,1,5`)
+- `--n-bins` : nombre de tranches pour les histogrammes (défaut : 5)
+
+**Sorties** :
+- Tableau stats (moyenne, médiane, min, max) par métrique pour victoires vs échecs
+- Histogramme comparé victoires vs échecs pour chaque métrique
+- Top-10 échecs par coût optimal
+- Win rate par tranche de difficulté (Facile/Rochers/Mixte/Complexe/Difficile)
+
+---
 
 ### `analyze/search_seeds.py`
 **Objectif** : trouver 20 seeds pédagogiquement intéressants pour le curriculum RL.

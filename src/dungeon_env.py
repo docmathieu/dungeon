@@ -22,6 +22,7 @@ import random
 
 from grid import Grid, TileType
 from game_state import GameState
+from pathfinder import PathFinder
 
 
 # Encodage entier des types de cases (utilisé dans l'observation)
@@ -35,8 +36,9 @@ _TILE_ENC: dict[TileType, int] = {
 ACTIONS: tuple[str, ...] = ("LEFT", "RIGHT", "UP", "DOWN")
 
 # Reward shaping — signaux intermédiaires à chaque pas
-REWARD_STEP = -0.01   # déplacement normal (herbe ou eau) sans victoire
-REWARD_BUMP = -0.05   # choc contre un mur ou un bord de grille
+REWARD_STEP            = -0.01   # déplacement normal (herbe ou eau) sans victoire
+REWARD_BUMP            = -0.05   # choc contre un mur ou un bord de grille
+REWARD_PROGRESS_SCALE  =  0.10   # facteur appliqué à la réduction de coût Dijkstra
 
 
 MAX_STEPS: int = 100   # nombre maximum de pas par épisode (module-level alias)
@@ -63,12 +65,19 @@ class DungeonEnv:
         self._rng             = random.Random()   # tirage seed_pool et seeds aléatoires
         self._current_seed_idx: int = 0           # index dans seed_pool du dernier reset()
         self._effective_seed: int | None = None   # seed effectif du dernier épisode
+        self._pf              = PathFinder()       # réutilisé à chaque step (pas de reset)
+        self._dijkstra_cost: float = 0.0           # coût Dijkstra depuis la position courante
 
     # ------------------------------------------------------------------
     def reset(self) -> dict:
         """Démarre un nouvel épisode. Retourne l'observation initiale."""
         self._state = GameState.create_solvable(seed=self._pick_seed())
         self._steps = 0
+        self._dijkstra_cost = float(
+            self._pf.shortest_cost(
+                self._state.grid, self._state.char_pos, self._state.exit_pos
+            ) or 0
+        )
         return self._observe()
 
     def step(self, action: str) -> tuple[dict, float, bool, dict]:
@@ -79,13 +88,18 @@ class DungeonEnv:
 
         Reward shaping :
             victoire            → score / 100.0  (1.0 = chemin optimal)
-            déplacement normal  → REWARD_STEP (-0.01)
             choc mur / bord     → REWARD_BUMP  (-0.05)
+            déplacement normal  → REWARD_STEP (-0.01)
+                                  + (dijkstra_avant - dijkstra_après) * REWARD_PROGRESS_SCALE
+                                  (positif si l'agent se rapproche de la sortie,
+                                   négatif s'il s'éloigne — Dijkstra intègre les détours
+                                   obligatoires donc ne pénalise pas les contournements)
         """
         if self._state is None:
             raise RuntimeError("Appeler reset() avant step()")
 
-        pos_before = self._state.char_pos
+        pos_before   = self._state.char_pos
+        cost_before  = self._dijkstra_cost
         self._state.apply_move(action)
         self._steps += 1
 
@@ -95,9 +109,16 @@ class DungeonEnv:
         if won:
             reward = self._state.score / 100.0       # victoire
         elif self._state.char_pos == pos_before:
-            reward = REWARD_BUMP                      # choc : position inchangée
+            reward = REWARD_BUMP                      # choc : position inchangée, Dijkstra inchangé
         else:
-            reward = REWARD_STEP                      # déplacement normal
+            cost_after = float(
+                self._pf.shortest_cost(
+                    self._state.grid, self._state.char_pos, self._state.exit_pos
+                ) or 0
+            )
+            self._dijkstra_cost = cost_after
+            progress = cost_before - cost_after
+            reward = REWARD_STEP + progress * REWARD_PROGRESS_SCALE
 
         info = {
             "score": self._state.score,
