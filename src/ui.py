@@ -18,14 +18,15 @@ WHITE  = (255, 255, 255)
 GREEN  = ( 34, 139,  34)
 GREY   = (128, 128, 128)
 BLUE   = ( 30, 144, 255)
-YELLOW = (255, 255,   0)
-RED    = (220,  50,  50)
+YELLOW       = (255, 255,   0)   # chemin optimal (tracé parfait)
+RED          = (220,  50,  50)   # (non utilisé pour les tracés)
+PLAYER_TRAIL = (  0,  70, 180)   # tracé manuel clavier — bleu foncé
 DARK   = ( 40,  40,  40)
 CYAN   = (  0, 220, 220)
-ORANGE = (255, 140,   0)   # couleur unique des tracés IA
+ORANGE = (255, 140,   0)   # orange — tracé IA simple model
 
 TRAIL_WIDTH  = 3   # épaisseur de tous les traits (px)
-TRAIL_OFFSET = 5   # décalage latéral — rouge = −offset (gauche), jaune = 0 (centre), orange = +offset (droite)
+TRAIL_OFFSET = 5   # décalage latéral — rouge = −offset (gauche), jaune = 0 (centre), IA = +offset (droite)
 _TRAIL_COLORKEY = (1, 0, 1)  # magenta pur — couleur-clé transparente pour la surface multi-trails
 
 TILE_PX   = 80   # rendered cell size (pixels)
@@ -100,12 +101,14 @@ class GameUI:
         self._mm_loaded: bool = False   # multi modèles chargés → bouton bleu
 
         # Rects des boutons (initialisés dans _draw_hud_top)
-        self._restart_rect:    pygame.Rect = pygame.Rect(0, 0, 0, 0)
-        self._seed_input_rect: pygame.Rect = pygame.Rect(0, 0, 0, 0)
-        self._ai_simple_rect:  pygame.Rect = pygame.Rect(0, 0, 0, 0)
-        self._restart_sm_rect: pygame.Rect = pygame.Rect(0, 0, 0, 0)
-        self._ai_multi_rect:   pygame.Rect = pygame.Rect(0, 0, 0, 0)
-        self._restart_mm_rect: pygame.Rect = pygame.Rect(0, 0, 0, 0)
+        self._restart_rect:         pygame.Rect = pygame.Rect(0, 0, 0, 0)
+        self._seed_input_rect:      pygame.Rect = pygame.Rect(0, 0, 0, 0)
+        self._ai_simple_rect:       pygame.Rect = pygame.Rect(0, 0, 0, 0)
+        self._restart_sm_rect:      pygame.Rect = pygame.Rect(0, 0, 0, 0)
+        self._restart_sm_stoch_rect: pygame.Rect = pygame.Rect(0, 0, 0, 0)
+        self._ai_multi_rect:        pygame.Rect = pygame.Rect(0, 0, 0, 0)
+        self._restart_mm_rect:      pygame.Rect = pygame.Rect(0, 0, 0, 0)
+        self._restart_mm_stoch_rect: pygame.Rect = pygame.Rect(0, 0, 0, 0)
 
         self._reset()
 
@@ -210,7 +213,7 @@ class GameUI:
             ra = _tile_rect(ax, ay)
             rb = _tile_rect(bx, by)
             pygame.draw.line(
-                self._screen, RED,
+                self._screen, YELLOW,
                 (ra.centerx + o, ra.centery + o),
                 (rb.centerx + o, rb.centery + o),
                 TRAIL_WIDTH,
@@ -239,7 +242,7 @@ class GameUI:
             ra = _tile_rect(ax, ay)
             rb = _tile_rect(bx, by)
             pygame.draw.line(
-                self._screen, RED,
+                self._screen, YELLOW,
                 (ra.centerx + o, ra.centery + o),
                 (rb.centerx + o, rb.centery + o),
                 TRAIL_WIDTH,
@@ -302,7 +305,7 @@ class GameUI:
             ra = _tile_rect(ax, ay)
             rb = _tile_rect(bx, by)
             pygame.draw.line(
-                self._screen, YELLOW,
+                self._screen, PLAYER_TRAIL,
                 (ra.centerx, ra.centery),
                 (rb.centerx, rb.centery),
                 TRAIL_WIDTH,
@@ -341,7 +344,7 @@ class GameUI:
         loading = self._loading_progress is not None
 
         # ── Row 1 (y=4) : [Génération terrain]  Seed:[input]  stats jeu  touches ──
-        restart_rect = pygame.Rect(4, 4, 160, 22)
+        restart_rect = pygame.Rect(4, 4, 150, 22)
         pygame.draw.rect(self._screen, DARK, restart_rect)
         pygame.draw.rect(self._screen, WHITE, restart_rect, 1)
         self._label("Génération terrain", restart_rect.x + 6, restart_rect.y + 3)
@@ -372,10 +375,10 @@ class GameUI:
         keys_text = "← ↑ → ↓   |   R restart"
         self._label(keys_text, WIN_W - self._font.size(keys_text)[0] - 4, 8, GREY)
 
-        # ── Row 2 (y=34) : [IA simple model]  [restart SM]  stats simple ──
+        # ── Row 2 (y=34) : [IA simple model]  [Start SM déterministe]  stats simple ──
         row2_y = 34
-        sm_bdr = GREY if loading else (BLUE if self._sm_loaded else WHITE)
-        ai_simple_rect = pygame.Rect(4, row2_y, 130, 22)
+        sm_bdr = GREY if loading else (CYAN if self._sm_loaded else WHITE)
+        ai_simple_rect = pygame.Rect(4, row2_y, 120, 22)
         pygame.draw.rect(self._screen, DARK, ai_simple_rect)
         pygame.draw.rect(self._screen, sm_bdr, ai_simple_rect, 1)
         self._label("IA simple model", ai_simple_rect.x + 4, ai_simple_rect.y + 3, sm_bdr)
@@ -383,28 +386,39 @@ class GameUI:
 
         can_rst_sm = self._ai_net is not None and not loading
         rst_sm_col = CYAN if can_rst_sm else GREY
-        rst_sm_rect = pygame.Rect(142, row2_y, 88, 22)
+        rst_sm_rect = pygame.Rect(132, row2_y, 160, 22)
         pygame.draw.rect(self._screen, DARK, rst_sm_rect)
         pygame.draw.rect(self._screen, rst_sm_col, rst_sm_rect, 1)
         if loading and self._sm_loaded:
             dots = "." * ((pygame.time.get_ticks() // 400) % 4)
             rst_sm_label = f"Calcul{dots}"
         else:
-            rst_sm_label = "restart SM"
+            rst_sm_label = "Start SM déterministe"
         self._label(rst_sm_label, rst_sm_rect.x + 4, rst_sm_rect.y + 3, rst_sm_col)
         self._restart_sm_rect = rst_sm_rect
+
+        # [Start SM stochastique]
+        rst_sm_stoch_rect = pygame.Rect(rst_sm_rect.right + 8, row2_y, 160, 22)
+        pygame.draw.rect(self._screen, DARK, rst_sm_stoch_rect)
+        pygame.draw.rect(self._screen, rst_sm_col, rst_sm_stoch_rect, 1)
+        if loading and self._sm_loaded:
+            rst_sm_stoch_label = f"Calcul{dots}"
+        else:
+            rst_sm_stoch_label = "Start SM stochastique"
+        self._label(rst_sm_stoch_label, rst_sm_stoch_rect.x + 4, rst_sm_stoch_rect.y + 3, rst_sm_col)
+        self._restart_sm_stoch_rect = rst_sm_stoch_rect
 
         if self._sm_loaded and self._ai_stats:
             wins  = self._ai_stats["wins"]
             total = self._ai_stats["total"]
             note  = self._ai_stats["note_moy"]
             sm_parts = [f"Victoires : {wins}/{total}", f"Note moy : {note:.0f}"]
-            self._label("   |   ".join(sm_parts), rst_sm_rect.right + 10, row2_y + 3)
+            self._label("   |   ".join(sm_parts), rst_sm_stoch_rect.right + 10, row2_y + 3)
 
-        # ── Row 3 (y=60) : [IA multi model]  [restart MM]  stats multi ──
+        # ── Row 3 (y=60) : [IA multi model]  [Start MM déterministe]  stats multi ──
         row3_y = 60
-        mm_bdr = GREY if loading else (BLUE if self._mm_loaded else WHITE)
-        ai_multi_rect = pygame.Rect(4, row3_y, 130, 22)
+        mm_bdr = GREY if loading else (CYAN if self._mm_loaded else WHITE)
+        ai_multi_rect = pygame.Rect(4, row3_y, 120, 22)
         pygame.draw.rect(self._screen, DARK, ai_multi_rect)
         pygame.draw.rect(self._screen, mm_bdr, ai_multi_rect, 1)
         self._label("IA multi model", ai_multi_rect.x + 4, ai_multi_rect.y + 3, mm_bdr)
@@ -412,16 +426,27 @@ class GameUI:
 
         can_rst_mm = self._mm_loaded and not loading
         rst_mm_col = CYAN if can_rst_mm else GREY
-        rst_mm_rect = pygame.Rect(142, row3_y, 88, 22)
+        rst_mm_rect = pygame.Rect(132, row3_y, 160, 22)
         pygame.draw.rect(self._screen, DARK, rst_mm_rect)
         pygame.draw.rect(self._screen, rst_mm_col, rst_mm_rect, 1)
         if loading and self._mm_loaded:
             dots = "." * ((pygame.time.get_ticks() // 400) % 4)
             rst_mm_label = f"Calcul{dots}"
         else:
-            rst_mm_label = "restart MM"
+            rst_mm_label = "Start MM déterministe"
         self._label(rst_mm_label, rst_mm_rect.x + 4, rst_mm_rect.y + 3, rst_mm_col)
         self._restart_mm_rect = rst_mm_rect
+
+        # [Start MM stochastique]
+        rst_mm_stoch_rect = pygame.Rect(rst_mm_rect.right + 8, row3_y, 160, 22)
+        pygame.draw.rect(self._screen, DARK, rst_mm_stoch_rect)
+        pygame.draw.rect(self._screen, rst_mm_col, rst_mm_stoch_rect, 1)
+        if loading and self._mm_loaded:
+            rst_mm_stoch_label = f"Calcul{dots}"
+        else:
+            rst_mm_stoch_label = "Start MM stochastique"
+        self._label(rst_mm_stoch_label, rst_mm_stoch_rect.x + 4, rst_mm_stoch_rect.y + 3, rst_mm_col)
+        self._restart_mm_stoch_rect = rst_mm_stoch_rect
 
         shown = 0
         mm_parts: list[str] = []
@@ -442,7 +467,7 @@ class GameUI:
             mm_parts.append(f"Victoires : {wins}/{total}")
             mm_parts.append(f"Note moy : {note:.0f}")
         if mm_parts:
-            self._label("   |   ".join(mm_parts), rst_mm_rect.right + 10, row3_y + 3)
+            self._label("   |   ".join(mm_parts), rst_mm_stoch_rect.right + 10, row3_y + 3)
 
         # ── Row 4 (y=88) : barre de chargement (espace toujours réservé) ──
         if loading:
@@ -491,8 +516,13 @@ class GameUI:
         except Exception as exc:
             print(f"[IA simple load] Erreur : {exc}")
 
-    def _restart_sm(self) -> None:
-        """Lance ou relance un épisode avec le modèle simple chargé."""
+    def _restart_sm(self, deterministic: bool = True) -> None:
+        """Lance ou relance un épisode avec le modèle simple chargé.
+
+        deterministic=True  → mode déterministe (action = argmax)
+        deterministic=False → mode stochastique (action tirée selon la distribution PPO)
+        Pour DQN, le paramètre est ignoré (toujours greedy).
+        """
         if self._ai_net is None or self._loading_progress is not None:
             return
         self._ai_trail        = None
@@ -506,7 +536,9 @@ class GameUI:
         def _run() -> None:
             try:
                 from exploit import run_one_episode_info
-                trail, won, score = run_one_episode_info(net, seed=seed)
+                trail, won, score = run_one_episode_info(
+                    net, seed=seed, deterministic=deterministic
+                )
                 self._ai_trail        = trail
                 self._ai_optimal_path = optimal
                 self._ai_stats = {
@@ -522,9 +554,11 @@ class GameUI:
         threading.Thread(target=_run, daemon=True).start()
 
     def _load_ai_multi(self) -> None:
-        """Directory picker → mémorise le dossier de run sans jouer d'épisode.
+        """Directory picker → charge tous les modèles en fond (sans jouer d'épisode).
 
-        Le bouton [IA multi model] passe en bleu. Cliquer [restart MM] lance les épisodes.
+        Déclenche _preload_multi : barre de progression visible pendant le chargement.
+        _mm_loaded passe à True seulement quand tous les modèles sont en cache.
+        Les boutons [Start MM ...] deviennent accessibles après le chargement.
         """
         if self._loading_progress is not None:
             return
@@ -545,24 +579,78 @@ class GameUI:
         self._anim_idx        = -1
         self._ai_optimal_path = None
         self._ai_stats        = None
-        self._ai_run_dir = Path(run_dir_str)
-        self._mm_loaded  = True
-        self._sm_loaded  = False
+        self._mm_loaded       = False   # sera True quand le préchargement sera terminé
+        self._sm_loaded       = False
+        self._ai_run_dir      = Path(run_dir_str)
+        self._preload_multi(self._ai_run_dir)
 
-    def _restart_mm(self) -> None:
-        """Lance ou relance les tracés de tous les modèles multi chargés."""
+    def _preload_multi(self, run_dir: Path) -> None:
+        """Charge tous les modèles du run en thread de fond, sans jouer d'épisode.
+
+        Remplit _ai_nets_cache avec les nets chargés.
+        Met _mm_loaded=True à la fin → boutons [Start MM ...] deviennent accessibles.
+        Aucun trail n'est calculé ni affiché — cliquer [Start MM ...] calcule les trails.
+        """
+        if self._loading_progress is not None:
+            return
+        self._loading_progress = 0.0
+
+        def _load() -> None:
+            from exploit import scan_run_dir, load_model
+            try:
+                checkpoints = scan_run_dir(run_dir)
+                if not checkpoints:
+                    return
+
+                n = len(checkpoints)
+                stage_counts: dict[int, int] = {}
+                for cp in checkpoints:
+                    s = cp["stage_idx"]
+                    stage_counts[s] = stage_counts.get(s, 0) + 1
+                stage_seen: dict[int, int] = {}
+
+                nets_cache: list[dict] = []
+                for i, cp in enumerate(checkpoints):
+                    net = load_model(cp["pt_path"])
+                    s   = cp["stage_idx"]
+                    stage_seen[s] = stage_seen.get(s, 0) + 1
+                    k   = stage_seen[s]
+                    n_s = stage_counts[s]
+                    alpha = int(50 + 170 * k / n_s)
+                    nets_cache.append({
+                        "net":       net,
+                        "color":     cp["color"],
+                        "alpha":     alpha,
+                        "stage_idx": s,
+                    })
+                    self._loading_progress = (i + 1) / n
+
+                self._ai_nets_cache = nets_cache
+                self._mm_loaded     = True   # boutons Start MM accessibles
+            except Exception as exc:
+                print(f"[IA multi preload] Erreur : {exc}")
+            finally:
+                self._loading_progress = None
+
+        threading.Thread(target=_load, daemon=True).start()
+
+    def _restart_mm(self, deterministic: bool = True) -> None:
+        """Lance ou relance les tracés de tous les modèles multi chargés.
+
+        Recalcule toujours les trails depuis le cache sur le terrain courant.
+        Les modèles sont déjà en mémoire (_ai_nets_cache) — seuls les épisodes
+        sont à rejouer, ce qui est plus rapide que le chargement initial.
+        """
         if not self._mm_loaded or self._loading_progress is not None:
             return
         self._ai_trails       = []
         self._anim_idx        = -1
         self._ai_optimal_path = self._state.optimal_path
         self._ai_stats        = None
-        if self._ai_nets_cache:
-            self._rerun_from_cache(self._current_seed)
-        elif self._ai_run_dir is not None:
-            self._load_multi(self._ai_run_dir, self._current_seed)
+        self._rerun_from_cache(self._current_seed, deterministic=deterministic)
 
-    def _load_multi(self, run_dir: Path, seed: int | None) -> None:
+    def _load_multi(self, run_dir: Path, seed: int | None,
+                    deterministic: bool = True) -> None:
         """Lance le chargement de tous les checkpoints du run en thread de fond."""
         if self._loading_progress is not None:
             return
@@ -592,7 +680,9 @@ class GameUI:
                 scores_sum = 0
                 for i, cp in enumerate(checkpoints):
                     net               = load_model(cp["pt_path"])
-                    trail, won, score = run_one_episode_info(net, seed=seed)
+                    trail, won, score = run_one_episode_info(
+                        net, seed=seed, deterministic=deterministic
+                    )
                     if won:
                         wins      += 1
                         scores_sum += score
@@ -629,7 +719,7 @@ class GameUI:
         self._loading_thread = threading.Thread(target=_load, daemon=True)
         self._loading_thread.start()
 
-    def _rerun_from_cache(self, seed: int | None) -> None:
+    def _rerun_from_cache(self, seed: int | None, deterministic: bool = True) -> None:
         """Rejoue tous les modèles en cache sur un nouveau seed, sans relire le disque."""
         if not self._ai_nets_cache or self._loading_progress is not None:
             return
@@ -647,7 +737,9 @@ class GameUI:
                 wins = 0
                 scores_sum = 0
                 for i, entry in enumerate(self._ai_nets_cache):
-                    trail, won, score = run_one_episode_info(entry["net"], seed=seed)
+                    trail, won, score = run_one_episode_info(
+                        entry["net"], seed=seed, deterministic=deterministic
+                    )
                     if won:
                         wins      += 1
                         scores_sum += score
@@ -684,13 +776,19 @@ class GameUI:
                 self._load_ai_simple()
                 return
             if self._restart_sm_rect.collidepoint(event.pos):
-                self._restart_sm()
+                self._restart_sm(deterministic=True)
+                return
+            if self._restart_sm_stoch_rect.collidepoint(event.pos):
+                self._restart_sm(deterministic=False)
                 return
             if self._ai_multi_rect.collidepoint(event.pos):
                 self._load_ai_multi()
                 return
             if self._restart_mm_rect.collidepoint(event.pos):
-                self._restart_mm()
+                self._restart_mm(deterministic=True)
+                return
+            if self._restart_mm_stoch_rect.collidepoint(event.pos):
+                self._restart_mm(deterministic=False)
                 return
             if self._seed_input_rect.collidepoint(event.pos):
                 self._seed_input_active = True

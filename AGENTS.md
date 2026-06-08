@@ -366,16 +366,24 @@ Tests : `tests/test_exploit.py` (55 tests)
 
 **Boutons IA dans l'UI (HUD_TOP_H=96, lignes 1–4) :**
 
-- Ligne 1 : `[Génération terrain]` + `Seed:[input]` + stats jeu + touches (sans "déplacer")
-- Ligne 2 : `[IA simple model]` (blanc→bleu) + `[restart SM]` (grisé→cyan) + stats simple
-- Ligne 3 : `[IA multi model]` (blanc→bleu) + `[restart MM]` (grisé→cyan) + stats multi
-- Ligne 4 : barre de chargement 8px (si loading)
+- Ligne 1 : `[Génération terrain]` + `Seed:[input]` + stats jeu + touches
+- Ligne 2 : `[IA simple model]` (blanc→cyan) + `[Start SM déterministe]` + `[Start SM stochastique]` + stats simple
+- Ligne 3 : `[IA multi model]` (blanc→cyan) + `[Start MM déterministe]` + `[Start MM stochastique]` + stats multi
+- Ligne 4 : barre de chargement 8px
 
 Comportement :
-- `[IA simple model]` : file picker `.pt`/`.zip` → charge le modèle uniquement → bouton BLEU. Mutuellement exclusif avec MM.
-- `[restart SM]` : joue un épisode sur le terrain courant. Grisé si modèle non chargé. "Calcul..." pendant l'épisode.
-- `[IA multi model]` : directory picker `*_run/` → mémorise le dossier → bouton BLEU. Mutuellement exclusif avec SM.
-- `[restart MM]` : lance tous les checkpoints sur le terrain courant (cache si dispo, sinon disque). Grisé si non chargé.
+- `[IA simple model]` : file picker `.pt`/`.zip` → charge le modèle → bouton CYAN. Mutuellement exclusif avec MM.
+- `[Start SM déterministe]` : épisode déterministe (argmax). Grisé si non chargé.
+- `[Start SM stochastique]` : épisode stochastique PPO. Grisé si non chargé.
+- `[IA multi model]` : directory picker `*_run/` → charge tous les modèles en fond (barre visible) → bouton CYAN quand terminé. Mutuellement exclusif avec SM.
+- `[Start MM déterministe]` : calcule les trails déterministes depuis le cache. Grisé pendant chargement.
+- `[Start MM stochastique]` : calcule les trails stochastiques depuis le cache. Grisé pendant chargement.
+
+**Couleurs des tracés :**
+- Trail joueur (clavier) : bleu foncé `(0, 70, 180)` — centré
+- Trail IA simple model : orange `(255, 140, 0)` — décalé droite +5px
+- Trail IA multi model : dégradé orange→rouge `(255,140,0)→(255,0,0)` — décalé droite +5px, alpha 50→220
+- Chemin optimal (parfait) : jaune `(255, 255, 0)` — décalé gauche −5px
 
 ---
 

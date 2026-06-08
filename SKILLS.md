@@ -104,19 +104,26 @@ Compile le jeu en exécutable Windows autonome (PyInstaller).
 | `run_one_episode_info_ppo(model, seed)` | Épisode PPO déterministe via `DungeonGymEnv` |
 | `scan_run_dir(run_dir)` | Checkpoints ordonnés dans un `*_run/` (`.pt` et `.zip`) |
 
-**Nouvelle disposition HUD (2026-06-08) — HUD_TOP_H = 96px :**
+**Disposition HUD (2026-06-08, affinée) — HUD_TOP_H = 96px :**
 
 | Ligne | Contenu |
 |-------|---------|
 | 1 | `[Génération terrain]` `Seed:[input]` \| Déplacements / Note / Info \| `← ↑ → ↓ \| R restart` |
-| 2 | `[IA simple model]` (blanc→bleu) `[restart SM]` (grisé→cyan) \| stats simple |
-| 3 | `[IA multi model]` (blanc→bleu) `[restart MM]` (grisé→cyan) \| stats multi |
-| 4 | Barre de chargement 8px (si loading) |
+| 2 | `[IA simple model]` (blanc→cyan) `[Start SM déterministe]` `[Start SM stochastique]` \| stats |
+| 3 | `[IA multi model]` (blanc→cyan) `[Start MM déterministe]` `[Start MM stochastique]` \| stats |
+| 4 | Barre de chargement 8px |
 
-Comportement des boutons load/restart :
-- `[IA simple model]` / `[IA multi model]` → **chargent uniquement** (bouton → BLEU). Mutuellement exclusifs.
-- `[restart SM]` → joue un épisode depuis le modèle SM. Grisé si non chargé.
-- `[restart MM]` → rejoue tous les checkpoints. Grisé si non chargé.
+Comportement :
+- `[IA simple model]` / `[IA multi model]` → **chargent uniquement** (bouton → CYAN). Mutuellement exclusifs.
+- `[IA multi model]` charge les modèles en fond (barre visible). Bouton CYAN quand terminé.
+- `[Start SM/MM déterministe]` → épisode(s) argmax. Grisé si non chargé.
+- `[Start SM/MM stochastique]` → épisode(s) stochastique PPO. Grisé si non chargé.
+
+**Couleurs des tracés :**
+- Joueur (clavier) : bleu foncé `(0, 70, 180)` centré
+- IA simple : orange `(255, 140, 0)` décalé droite
+- IA multi : dégradé orange `(255,140,0)` → rouge `(255,0,0)` décalé droite, alpha 50→220
+- Chemin optimal : jaune `(255,255,0)` décalé gauche
 
 ---
 

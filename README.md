@@ -358,16 +358,16 @@ Produit `dist\dungeon.exe` — autonome, ne nécessite pas Python installé.
 Lancer avec `.venv\Scripts\python.exe src\main.py`.
 
 ```
-┌─────────────────────────────────────────────────────┐  ← HUD (96px)
-│  [Génération terrain]  Seed:[____]  Dépl: 0  Note: 0  Info:          ← ↑ → ↓ | R restart  │  Ligne 1
-│  [IA simple model]  [restart SM]   Victoires : 0/0  |  Note moy : 0  │  Ligne 2 — modèle simple
-│  [IA multi model]   [restart MM]   Trail 0/0  |  Victoires : 0/0     │  Ligne 3 — multi modèles
-│  ████████████████████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░                  │  Ligne 4 — barre chargement
-├─────────────────────────────────────────────────────┤
-│                                                     │
-│           Grille 10×10  (800×800 px)                │  ← Terrain de jeu
-│                                                     │
-└─────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────────────────┐  ← HUD (96px)
+│ [Génération terrain] Seed:[____] Déplacements: 0  Note: 0  Info:  ← ↑ → ↓ | R restart │  Ligne 1
+│ [IA simple model] [Start SM déterministe] [Start SM stochastique]  stats SM  │  Ligne 2
+│ [IA multi model]  [Start MM déterministe] [Start MM stochastique]  stats MM  │  Ligne 3
+│ ████████████████████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░            │  Ligne 4 — barre
+├──────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│                      Grille 10×10  (800×800 px)                              │  ← Terrain
+│                                                                              │
+└──────────────────────────────────────────────────────────────────────────────┘
 ```
 
 ### Terrain de jeu
@@ -379,9 +379,10 @@ Lancer avec `.venv\Scripts\python.exe src\main.py`.
 | **Eau** | Tuile bleue (water.png) | Case franchissable, coût 2 déplacements |
 | **Personnage** | Guerrier pixel art (player.png) | Position courante du joueur |
 | **Sortie** | Porte (castle.png) | Objectif à atteindre |
-| **Trail jaune** | Trait centré | Chemin parcouru par le joueur (affiché en continu) |
-| **Trail rouge** | Trait décalé à gauche (−5px) | Chemin optimal Dijkstra (affiché uniquement en fin de partie) |
-| **Trail orange** | Trait décalé à droite (+5px) | Chemin(s) joué(s) par l'IA |
+| **Trail bleu foncé** | Trait centré | Chemin parcouru par le joueur au clavier (affiché en continu) |
+| **Trail jaune** | Trait décalé à gauche (−5px) | Chemin optimal Dijkstra (affiché uniquement en fin de partie) |
+| **Trail IA simple** | Trait décalé à droite (+5px), orange `(255,140,0)` | Chemin joué par le modèle simple |
+| **Trail IA multi** | Trait décalé à droite (+5px), dégradé orange→rouge | Checkpoints animés : premier=orange, dernier=rouge |
 
 ### HUD — Ligne 1 : terrain, seed et statistiques de jeu
 
@@ -398,23 +399,25 @@ Lancer avec `.venv\Scripts\python.exe src\main.py`.
 
 | Élément | État | Description |
 |---|---|---|
-| **[IA simple model]** | Blanc = non chargé / Bleu = chargé | Ouvre un sélecteur de fichier `.pt` (DQN) ou `.zip` (PPO). Charge le modèle sans jouer d'épisode. |
-| **[restart SM]** | Grisé si non chargé / Cyan si prêt | Lance ou relance un épisode avec le modèle simple sur le terrain courant. Affiche "Calcul..." pendant l'épisode. |
-| **Victoires / Note moy** | Lecture seule | Résultat du dernier épisode joué par le modèle simple |
+| **[IA simple model]** | Blanc = non chargé / Cyan = chargé | Ouvre un sélecteur de fichier `.pt` (DQN) ou `.zip` (PPO). Charge le modèle sans jouer d'épisode. |
+| **[Start SM déterministe]** | Grisé si non chargé / Cyan si prêt | Lance un épisode déterministe (argmax). Affiche le trail orange. |
+| **[Start SM stochastique]** | Grisé si non chargé / Cyan si prêt | Lance un épisode stochastique (PPO uniquement). Résultat différent à chaque clic. |
+| **Victoires / Note moy** | Lecture seule | Résultat du dernier épisode joué |
 
 ### HUD — Ligne 3 : modèles IA multi
 
 | Élément | État | Description |
 |---|---|---|
-| **[IA multi model]** | Blanc = non chargé / Bleu = chargé | Ouvre un sélecteur de dossier `*_run/`. Mémorise le dossier sans jouer d'épisode. |
-| **[restart MM]** | Grisé si non chargé / Cyan si prêt | Lance ou relance tous les checkpoints du run sur le terrain courant. Animation 200ms/trail. Affiche "Calcul..." pendant le chargement. |
+| **[IA multi model]** | Blanc = non chargé / Cyan = chargé | Ouvre un sélecteur de dossier `*_run/`. Charge tous les modèles en fond (barre de progression). Bouton accessible après chargement complet. |
+| **[Start MM déterministe]** | Grisé si non chargé / Cyan si prêt | Lance les épisodes déterministes sur le terrain courant. Animation 200ms/trail, dégradé orange→rouge. |
+| **[Start MM stochastique]** | Grisé si non chargé / Cyan si prêt | Lance les épisodes stochastiques. Recalcul systématique (résultats variables). |
 | **Trail X/N / Victoires / Note moy** | Lecture seule | Progression de l'animation et statistiques cumulées |
 
-> **Exclusivité SM / MM :** charger un modèle simple (SM) efface le mode multi (MM) et vice versa. Un seul bouton peut être bleu à la fois.
+> **Exclusivité SM / MM :** charger un modèle simple (SM) efface le mode multi (MM) et vice versa. Un seul bouton peut être cyan à la fois.
 
 ### HUD — Ligne 4 : barre de chargement
 
-Visible uniquement pendant le chargement multi-model (`[restart MM]`). Indique la progression.
+Visible pendant le chargement des modèles multi (`[IA multi model]`) et pendant le calcul des épisodes (`[Start MM ...]`).
 
 ### Contrôles clavier
 

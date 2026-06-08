@@ -255,13 +255,19 @@ python tools/migrate_models.py --dry-run   # prévisualisation
 python tools/migrate_models.py             # migration réelle
 ```
 
-**Boutons IA dans l'UI (refonte 2026-06-08) — HUD_TOP_H = 96px :**
-- Ligne 1 : `[Génération terrain]` + `Seed:[input]` + stats jeu + touches (sans "déplacer")
-- Ligne 2 : `[IA simple model]` (blanc→bleu après chargement) + `[restart SM]` (grisé→cyan)
-- Ligne 3 : `[IA multi model]` (blanc→bleu après chargement) + `[restart MM]` (grisé→cyan)
+**Boutons IA dans l'UI (refonte 2026-06-08, affinée) — HUD_TOP_H = 96px :**
+- Ligne 1 : `[Génération terrain]` + `Seed:[input]` + stats jeu + touches
+- Ligne 2 : `[IA simple model]` (blanc→cyan) + `[Start SM déterministe]` + `[Start SM stochastique]` + stats
+- Ligne 3 : `[IA multi model]` (blanc→cyan) + `[Start MM déterministe]` + `[Start MM stochastique]` + stats
 - Ligne 4 : barre de chargement 8px
 
-Séparation load / run : les boutons load chargent uniquement le modèle (bouton → BLEU), les boutons restart déclenchent les épisodes. SM et MM sont mutuellement exclusifs (un seul bouton bleu à la fois).
+Séparation load/run : boutons load → CYAN. SM/MM mutuellement exclusifs. `[IA multi model]` charge les modèles en fond (barre visible) avant que Start MM soit accessible. `run_one_episode_info` accepte `deterministic=True/False`.
+
+**Couleurs des tracés :**
+- Joueur (clavier) : bleu foncé `(0, 70, 180)` — centré
+- IA simple model : orange `(255, 140, 0)` — décalé droite +5px
+- IA multi model : dégradé orange→rouge `(255,140,0)→(255,0,0)` — décalé droite +5px, alpha 50→220
+- Chemin optimal (parfait) : jaune `(255, 255, 0)` — décalé gauche −5px
 
 **Ligne 3 du HUD bas — statistiques IA :**
 Affichée sous les boutons IA : `Trail X/N   |   Victoires : Y/N   |   Note moy : ZZ`
