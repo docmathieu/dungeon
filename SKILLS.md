@@ -91,7 +91,7 @@ Compile le jeu en exécutable Windows autonome (PyInstaller).
 
 ---
 
-## Visualisation UI des modèles IA (2026-06-02) ✅
+## Visualisation UI des modèles IA (2026-06-02, refonte 2026-06-08) ✅
 
 `src/exploit.py` — chargement et exécution de modèles DQN et PPO :
 
@@ -104,10 +104,19 @@ Compile le jeu en exécutable Windows autonome (PyInstaller).
 | `run_one_episode_info_ppo(model, seed)` | Épisode PPO déterministe via `DungeonGymEnv` |
 | `scan_run_dir(run_dir)` | Checkpoints ordonnés dans un `*_run/` (`.pt` et `.zip`) |
 
-**Boutons IA dans l'UI (HUD_TOP, sous le champ Seed) :**
-- `[IA simple model]` — file picker `.pt`/`.zip` → un épisode, trail orange + chemin rouge
-- `[IA multi model]` — directory picker `*_run/` → tous les checkpoints en thread de fond, animation incrémentale
-- `[IA restart]` — efface trails orange+rouge, rejoue depuis le cache sur le terrain courant
+**Nouvelle disposition HUD (2026-06-08) — HUD_TOP_H = 96px :**
+
+| Ligne | Contenu |
+|-------|---------|
+| 1 | `[Génération terrain]` `Seed:[input]` \| Déplacements / Note / Info \| `← ↑ → ↓ \| R restart` |
+| 2 | `[IA simple model]` (blanc→bleu) `[restart SM]` (grisé→cyan) \| stats simple |
+| 3 | `[IA multi model]` (blanc→bleu) `[restart MM]` (grisé→cyan) \| stats multi |
+| 4 | Barre de chargement 8px (si loading) |
+
+Comportement des boutons load/restart :
+- `[IA simple model]` / `[IA multi model]` → **chargent uniquement** (bouton → BLEU). Mutuellement exclusifs.
+- `[restart SM]` → joue un épisode depuis le modèle SM. Grisé si non chargé.
+- `[restart MM]` → rejoue tous les checkpoints. Grisé si non chargé.
 
 ---
 

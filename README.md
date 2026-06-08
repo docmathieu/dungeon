@@ -358,11 +358,11 @@ Produit `dist\dungeon.exe` — autonome, ne nécessite pas Python installé.
 Lancer avec `.venv\Scripts\python.exe src\main.py`.
 
 ```
-┌─────────────────────────────────────────────────────┐  ← HUD (108px)
-│  Déplacements : 0    Note : 0    Information :       │  Ligne 1 — stats
-│  [Génération terrain]  Seed: [____]   Trail 0/0 ...  │  Ligne 2 — terrain + seed + stats IA
-│  [IA simple model]  [IA multi model]  [IA restart]   │  Ligne 3 — boutons IA
-│  ████████████████████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░  │  Ligne 4 — barre de chargement
+┌─────────────────────────────────────────────────────┐  ← HUD (96px)
+│  [Génération terrain]  Seed:[____]  Dépl: 0  Note: 0  Info:          ← ↑ → ↓ | R restart  │  Ligne 1
+│  [IA simple model]  [restart SM]   Victoires : 0/0  |  Note moy : 0  │  Ligne 2 — modèle simple
+│  [IA multi model]   [restart MM]   Trail 0/0  |  Victoires : 0/0     │  Ligne 3 — multi modèles
+│  ████████████████████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░                  │  Ligne 4 — barre chargement
 ├─────────────────────────────────────────────────────┤
 │                                                     │
 │           Grille 10×10  (800×800 px)                │  ← Terrain de jeu
@@ -383,36 +383,38 @@ Lancer avec `.venv\Scripts\python.exe src\main.py`.
 | **Trail rouge** | Trait décalé à gauche (−5px) | Chemin optimal Dijkstra (affiché uniquement en fin de partie) |
 | **Trail orange** | Trait décalé à droite (+5px) | Chemin(s) joué(s) par l'IA |
 
-### HUD — Ligne 1 : statistiques
-
-| Champ | Description |
-|---|---|
-| **Déplacements** | Nombre de déplacements accumulés (herbe=1, eau=2, choc mur=1) |
-| **Note** | Score final 0–100. `round(100 × coût_optimal / coût_joueur)`. 100 = chemin optimal |
-| **Information** | Vide pendant la partie, affiche **GAGNE** à l'arrivée |
-| Touches (gris) | Rappel des contrôles clavier |
-
-### HUD — Ligne 2 : terrain et seed
+### HUD — Ligne 1 : terrain, seed et statistiques de jeu
 
 | Élément | Interaction | Description |
 |---|---|---|
-| **[Génération terrain]** | Clic | Génère un nouveau terrain aléatoire solvable (Dijkstra vérifie qu'un chemin existe) |
-| **Seed : [champ]** | Clic + saisie numérique + Entrée | Génère le terrain correspondant au seed saisi (reproductible) |
-| **Trail X/N** | Lecture seule | Progression de l'animation IA (mode multi uniquement) |
-| **Victoires : Y/N** | Lecture seule | Nombre d'épisodes IA gagnés / total chargés |
-| **Note moy : ZZ** | Lecture seule | Score moyen sur tous les épisodes IA (échecs = 0 inclus) |
+| **[Génération terrain]** | Clic | Génère un nouveau terrain aléatoire solvable |
+| **Seed : [champ]** | Clic + saisie + Entrée | Génère le terrain correspondant au seed saisi (reproductible) |
+| **Déplacements** | Lecture seule | Nombre de déplacements accumulés (herbe=1, eau=2, choc mur=1) |
+| **Note** | Lecture seule | Score final 0–100. `round(100 × coût_optimal / coût_joueur)`. 100 = chemin optimal |
+| **Info** | Lecture seule | Vide pendant la partie, affiche **GAGNE** à l'arrivée |
+| Touches (gris) | — | Rappel des contrôles clavier `← ↑ → ↓ \| R restart` |
 
-### HUD — Ligne 3 : boutons IA
+### HUD — Ligne 2 : modèle IA simple
 
-| Bouton | Description |
-|---|---|
-| **[IA simple model]** | Ouvre un sélecteur de fichier `.pt` (DQN) ou `.zip` (PPO). Joue un épisode complet en mode déterministe. Affiche le trail orange + chemin optimal rouge en fin de partie |
-| **[IA multi model]** | Ouvre un sélecteur de dossier `*_run/`. Charge **tous** les checkpoints du run en thread de fond, puis anime les trails un par un (200ms/trail). Barre de chargement en ligne 4 |
-| **[IA restart]** | Efface les trails orange et rouge, puis rejoue tous les modèles chargés sur le **terrain courant** depuis le cache (sans relire le disque). Affiche "Calcul..." pendant le recalcul |
+| Élément | État | Description |
+|---|---|---|
+| **[IA simple model]** | Blanc = non chargé / Bleu = chargé | Ouvre un sélecteur de fichier `.pt` (DQN) ou `.zip` (PPO). Charge le modèle sans jouer d'épisode. |
+| **[restart SM]** | Grisé si non chargé / Cyan si prêt | Lance ou relance un épisode avec le modèle simple sur le terrain courant. Affiche "Calcul..." pendant l'épisode. |
+| **Victoires / Note moy** | Lecture seule | Résultat du dernier épisode joué par le modèle simple |
+
+### HUD — Ligne 3 : modèles IA multi
+
+| Élément | État | Description |
+|---|---|---|
+| **[IA multi model]** | Blanc = non chargé / Bleu = chargé | Ouvre un sélecteur de dossier `*_run/`. Mémorise le dossier sans jouer d'épisode. |
+| **[restart MM]** | Grisé si non chargé / Cyan si prêt | Lance ou relance tous les checkpoints du run sur le terrain courant. Animation 200ms/trail. Affiche "Calcul..." pendant le chargement. |
+| **Trail X/N / Victoires / Note moy** | Lecture seule | Progression de l'animation et statistiques cumulées |
+
+> **Exclusivité SM / MM :** charger un modèle simple (SM) efface le mode multi (MM) et vice versa. Un seul bouton peut être bleu à la fois.
 
 ### HUD — Ligne 4 : barre de chargement
 
-Visible uniquement pendant le chargement multi-model. Indique la progression du chargement des checkpoints.
+Visible uniquement pendant le chargement multi-model (`[restart MM]`). Indique la progression.
 
 ### Contrôles clavier
 

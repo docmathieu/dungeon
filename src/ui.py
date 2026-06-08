@@ -37,7 +37,7 @@ _ASSETS_DIR = Path(__file__).parent.parent / "assets" / "tiles"
 GRID_W = Grid.WIDTH  * CELL_STEP - SEP_PX   # 409 px
 GRID_H = Grid.HEIGHT * CELL_STEP - SEP_PX   # 409 px
 
-HUD_TOP_H = 108   # height of the top HUD strip (stats + seed + all buttons + loading bar)
+HUD_TOP_H = 96    # height of the top HUD strip (stats + seed + all buttons + loading bar)
 HUD_BOT_H = 0     # plus de HUD bas — tous les boutons sont en HUD_TOP
 
 INPUT_ACTIVE_COL = ( 60,  60,  80)   # fond du champ de saisie actif
@@ -95,12 +95,17 @@ class GameUI:
         self._loading_thread: threading.Thread | None = None
         self._trail_surf: pygame.Surface | None = None   # surface réutilisable pour alpha
 
-        # Rects des boutons (initialisés dans _draw_hud_top et _draw_hud_bot)
+        # État chargement modèles IA (mutuellement exclusifs)
+        self._sm_loaded: bool = False   # modèle simple chargé → bouton bleu
+        self._mm_loaded: bool = False   # multi modèles chargés → bouton bleu
+
+        # Rects des boutons (initialisés dans _draw_hud_top)
         self._restart_rect:    pygame.Rect = pygame.Rect(0, 0, 0, 0)
         self._seed_input_rect: pygame.Rect = pygame.Rect(0, 0, 0, 0)
         self._ai_simple_rect:  pygame.Rect = pygame.Rect(0, 0, 0, 0)
+        self._restart_sm_rect: pygame.Rect = pygame.Rect(0, 0, 0, 0)
         self._ai_multi_rect:   pygame.Rect = pygame.Rect(0, 0, 0, 0)
-        self._ai_restart_rect: pygame.Rect = pygame.Rect(0, 0, 0, 0)
+        self._restart_mm_rect: pygame.Rect = pygame.Rect(0, 0, 0, 0)
 
         self._reset()
 
@@ -335,23 +340,15 @@ class GameUI:
         s       = self._state
         loading = self._loading_progress is not None
 
-        # ── Ligne 1 : stats jeu (blanc) + touches fléchées (gris, droite) ──
-        info_col = (80, 255, 80) if s.info == "GAGNE" else (255, 80, 80) if s.info == "PERDU" else WHITE
-        self._label(f"Déplacements : {s.move_count}", 4, 5)
-        self._label(f"Note : {s.score}", 220, 5)
-        self._label(f"Information : {s.info}", 340, 5, info_col)
-        keys_text = "← ↑ → ↓  déplacer   |   R restart"
-        self._label(keys_text, WIN_W - self._font.size(keys_text)[0] - 4, 5, GREY)
-
-        # ── Ligne 2 : [Génération terrain] + seed (input) + stats IA ────────
-        restart_rect = pygame.Rect(4, 32, 160, 26)
+        # ── Row 1 (y=4) : [Génération terrain]  Seed:[input]  stats jeu  touches ──
+        restart_rect = pygame.Rect(4, 4, 160, 22)
         pygame.draw.rect(self._screen, DARK, restart_rect)
         pygame.draw.rect(self._screen, WHITE, restart_rect, 1)
-        self._label("Génération terrain", restart_rect.x + 8, restart_rect.y + 5)
+        self._label("Génération terrain", restart_rect.x + 6, restart_rect.y + 3)
         self._restart_rect = restart_rect
 
-        self._label("Seed :", restart_rect.right + 8, 38)
-        input_rect = pygame.Rect(restart_rect.right + 56, 32, 100, 26)
+        self._label("Seed :", restart_rect.right + 6, 8)
+        input_rect = pygame.Rect(restart_rect.right + 50, 4, 78, 22)
         bg_col  = INPUT_ACTIVE_COL if self._seed_input_active else DARK
         bdr_col = INPUT_BORDER_COL if self._seed_input_active else WHITE
         pygame.draw.rect(self._screen, bg_col,  input_rect)
@@ -359,82 +356,109 @@ class GameUI:
         display_text = self._seed_input_text if self._seed_input_active else (
             str(self._current_seed) if self._current_seed is not None else ""
         )
-        self._label(display_text, input_rect.x + 4, input_rect.y + 5)
+        self._label(display_text, input_rect.x + 4, input_rect.y + 3)
         if self._seed_input_active and (pygame.time.get_ticks() // 500) % 2 == 0:
             cursor_x = input_rect.x + 4 + self._font.size(display_text)[0]
             pygame.draw.line(self._screen, WHITE,
-                             (cursor_x, input_rect.y + 3),
-                             (cursor_x, input_rect.y + 21), 1)
+                             (cursor_x, input_rect.y + 2),
+                             (cursor_x, input_rect.y + 19), 1)
         self._seed_input_rect = input_rect
 
-        # Stats IA à côté du champ seed
+        stats_x = input_rect.right + 12
+        info_col = (80, 255, 80) if s.info == "GAGNE" else (255, 80, 80) if s.info == "PERDU" else WHITE
+        self._label(f"Déplacements : {s.move_count}", stats_x, 8)
+        self._label(f"Note : {s.score}", stats_x + 155, 8)
+        self._label(f"Info : {s.info}", stats_x + 245, 8, info_col)
+        keys_text = "← ↑ → ↓   |   R restart"
+        self._label(keys_text, WIN_W - self._font.size(keys_text)[0] - 4, 8, GREY)
+
+        # ── Row 2 (y=34) : [IA simple model]  [restart SM]  stats simple ──
+        row2_y = 34
+        sm_bdr = GREY if loading else (BLUE if self._sm_loaded else WHITE)
+        ai_simple_rect = pygame.Rect(4, row2_y, 130, 22)
+        pygame.draw.rect(self._screen, DARK, ai_simple_rect)
+        pygame.draw.rect(self._screen, sm_bdr, ai_simple_rect, 1)
+        self._label("IA simple model", ai_simple_rect.x + 4, ai_simple_rect.y + 3, sm_bdr)
+        self._ai_simple_rect = ai_simple_rect
+
+        can_rst_sm = self._ai_net is not None and not loading
+        rst_sm_col = CYAN if can_rst_sm else GREY
+        rst_sm_rect = pygame.Rect(142, row2_y, 88, 22)
+        pygame.draw.rect(self._screen, DARK, rst_sm_rect)
+        pygame.draw.rect(self._screen, rst_sm_col, rst_sm_rect, 1)
+        if loading and self._sm_loaded:
+            dots = "." * ((pygame.time.get_ticks() // 400) % 4)
+            rst_sm_label = f"Calcul{dots}"
+        else:
+            rst_sm_label = "restart SM"
+        self._label(rst_sm_label, rst_sm_rect.x + 4, rst_sm_rect.y + 3, rst_sm_col)
+        self._restart_sm_rect = rst_sm_rect
+
+        if self._sm_loaded and self._ai_stats:
+            wins  = self._ai_stats["wins"]
+            total = self._ai_stats["total"]
+            note  = self._ai_stats["note_moy"]
+            sm_parts = [f"Victoires : {wins}/{total}", f"Note moy : {note:.0f}"]
+            self._label("   |   ".join(sm_parts), rst_sm_rect.right + 10, row2_y + 3)
+
+        # ── Row 3 (y=60) : [IA multi model]  [restart MM]  stats multi ──
+        row3_y = 60
+        mm_bdr = GREY if loading else (BLUE if self._mm_loaded else WHITE)
+        ai_multi_rect = pygame.Rect(4, row3_y, 130, 22)
+        pygame.draw.rect(self._screen, DARK, ai_multi_rect)
+        pygame.draw.rect(self._screen, mm_bdr, ai_multi_rect, 1)
+        self._label("IA multi model", ai_multi_rect.x + 4, ai_multi_rect.y + 3, mm_bdr)
+        self._ai_multi_rect = ai_multi_rect
+
+        can_rst_mm = self._mm_loaded and not loading
+        rst_mm_col = CYAN if can_rst_mm else GREY
+        rst_mm_rect = pygame.Rect(142, row3_y, 88, 22)
+        pygame.draw.rect(self._screen, DARK, rst_mm_rect)
+        pygame.draw.rect(self._screen, rst_mm_col, rst_mm_rect, 1)
+        if loading and self._mm_loaded:
+            dots = "." * ((pygame.time.get_ticks() // 400) % 4)
+            rst_mm_label = f"Calcul{dots}"
+        else:
+            rst_mm_label = "restart MM"
+        self._label(rst_mm_label, rst_mm_rect.x + 4, rst_mm_rect.y + 3, rst_mm_col)
+        self._restart_mm_rect = rst_mm_rect
+
         shown = 0
-        parts: list[str] = []
+        mm_parts: list[str] = []
         if self._ai_trails:
             n     = len(self._ai_trails)
             shown = max(0, self._anim_idx + 1)
-            parts.append(f"Trail {shown}/{n}")
+            mm_parts.append(f"Trail {shown}/{n}")
         if self._ai_trails and not loading and shown > 0:
             trails_shown = self._ai_trails[:shown]
             wins = sum(1 for t in trails_shown if t.get("won", False))
             note = sum(t.get("score", 0) for t in trails_shown) / shown
-            parts.append(f"Victoires : {wins}/{shown}")
-            parts.append(f"Note moy : {note:.0f}")
-        elif self._ai_stats:
+            mm_parts.append(f"Victoires : {wins}/{shown}")
+            mm_parts.append(f"Note moy : {note:.0f}")
+        elif self._mm_loaded and self._ai_stats and not self._ai_trails:
             wins  = self._ai_stats["wins"]
             total = self._ai_stats["total"]
             note  = self._ai_stats["note_moy"]
-            parts.append(f"Victoires : {wins}/{total}")
-            parts.append(f"Note moy : {note:.0f}")
-        if parts:
-            self._label("   |   ".join(parts), input_rect.right + 12, 38)
+            mm_parts.append(f"Victoires : {wins}/{total}")
+            mm_parts.append(f"Note moy : {note:.0f}")
+        if mm_parts:
+            self._label("   |   ".join(mm_parts), rst_mm_rect.right + 10, row3_y + 3)
 
-        # ── Ligne 3 : boutons IA ─────────────────────────────────────────────
-        row3_y = 64
-
-        # [IA simple model]
-        ai_simple_rect = pygame.Rect(4, row3_y, 122, 26)
-        pygame.draw.rect(self._screen, DARK, ai_simple_rect)
-        pygame.draw.rect(self._screen, CYAN, ai_simple_rect, 1)
-        self._label("IA simple model", ai_simple_rect.x + 4, ai_simple_rect.y + 5, CYAN)
-        self._ai_simple_rect = ai_simple_rect
-
-        # [IA multi model]
-        multi_col = GREY if loading else CYAN
-        ai_multi_rect = pygame.Rect(134, row3_y, 116, 26)
-        pygame.draw.rect(self._screen, DARK, ai_multi_rect)
-        pygame.draw.rect(self._screen, multi_col, ai_multi_rect, 1)
-        self._label("IA multi model", ai_multi_rect.x + 4, ai_multi_rect.y + 5, multi_col)
-        self._ai_multi_rect = ai_multi_rect
-
-        # [IA restart]
-        can_restart = (bool(self._ai_nets_cache) or self._ai_net is not None
-                       or self._ai_run_dir is not None)
-        rst_col = CYAN if (can_restart and not loading) else GREY
-        ai_restart_rect = pygame.Rect(258, row3_y, 92, 26)
-        pygame.draw.rect(self._screen, DARK, ai_restart_rect)
-        pygame.draw.rect(self._screen, rst_col, ai_restart_rect, 1)
-        if loading:
-            dots = "." * ((pygame.time.get_ticks() // 400) % 4)
-            rst_label = f"Calcul{dots}"
-        else:
-            rst_label = "IA restart"
-        self._label(rst_label, ai_restart_rect.x + 4, ai_restart_rect.y + 5, rst_col)
-        self._ai_restart_rect = ai_restart_rect
-
-        # ── Ligne 4 : barre de chargement (espace toujours réservé) ──────
-        # L'espace y=96..103 est toujours réservé ; la barre n'est dessinée que pendant le chargement
+        # ── Row 4 (y=88) : barre de chargement (espace toujours réservé) ──
         if loading:
             bar_w = int(WIN_W * self._loading_progress)
-            pygame.draw.rect(self._screen, DARK, (0, 96, WIN_W, 8))
-            pygame.draw.rect(self._screen, CYAN, (0, 96, bar_w, 8))
+            pygame.draw.rect(self._screen, DARK, (0, 88, WIN_W, 8))
+            pygame.draw.rect(self._screen, CYAN, (0, 88, bar_w, 8))
 
     def _draw_hud_bot(self) -> None:
         pass   # HUD bas supprimé — tous les boutons sont en HUD_TOP
 
     # ------------------------------------------------------------------
-    def _run_ai_simple(self) -> None:
-        """File picker → charge un modèle → joue un épisode complet (mode simple)."""
+    def _load_ai_simple(self) -> None:
+        """File picker → charge le modèle simple sans jouer d'épisode.
+
+        Le bouton [IA simple model] passe en bleu. Cliquer [restart SM] lance l'épisode.
+        """
         root = tkinter.Tk()
         root.withdraw()
         root.attributes("-topmost", True)
@@ -450,29 +474,60 @@ class GameUI:
         root.destroy()
         if not path_str:
             return
-        # Passer en mode simple : effacer l'état multi-model
-        self._ai_trails       = []
-        self._ai_nets_cache   = []
-        self._ai_run_dir      = None
-        self._anim_idx        = -1
         try:
-            from exploit import load_model, run_one_episode_info
-            self._ai_net = load_model(Path(path_str))
-            trail, won, score = run_one_episode_info(self._ai_net, seed=self._current_seed)
-            self._ai_trail        = trail
-            self._ai_optimal_path = self._state.optimal_path   # même seed → même chemin
-            self._ai_stats = {
-                "wins":     1 if won else 0,
-                "note_moy": float(score),   # score=0 si échec → inclus dans la moyenne
-                "total":    1,
-            }
+            from exploit import load_model
+            net = load_model(Path(path_str))
+            # Passer en mode simple : effacer état multi
+            self._ai_nets_cache   = []
+            self._ai_run_dir      = None
+            self._ai_trails       = []
+            self._anim_idx        = -1
+            self._ai_trail        = None
+            self._ai_optimal_path = None
+            self._ai_stats        = None
+            self._ai_net  = net
+            self._sm_loaded = True
+            self._mm_loaded = False
         except Exception as exc:
-            print(f"[IA simple] Erreur : {exc}")
+            print(f"[IA simple load] Erreur : {exc}")
 
-    def _run_ai_multi(self) -> None:
-        """Directory picker → mémorise le dossier → lance le chargement."""
+    def _restart_sm(self) -> None:
+        """Lance ou relance un épisode avec le modèle simple chargé."""
+        if self._ai_net is None or self._loading_progress is not None:
+            return
+        self._ai_trail        = None
+        self._ai_optimal_path = None
+        self._ai_stats        = None
+        net     = self._ai_net
+        seed    = self._current_seed
+        optimal = self._state.optimal_path
+        self._loading_progress = 0.5   # loader indéterminé pendant l'épisode unique
+
+        def _run() -> None:
+            try:
+                from exploit import run_one_episode_info
+                trail, won, score = run_one_episode_info(net, seed=seed)
+                self._ai_trail        = trail
+                self._ai_optimal_path = optimal
+                self._ai_stats = {
+                    "wins":     1 if won else 0,
+                    "note_moy": float(score),
+                    "total":    1,
+                }
+            except Exception as exc:
+                print(f"[restart SM] Erreur : {exc}")
+            finally:
+                self._loading_progress = None
+
+        threading.Thread(target=_run, daemon=True).start()
+
+    def _load_ai_multi(self) -> None:
+        """Directory picker → mémorise le dossier de run sans jouer d'épisode.
+
+        Le bouton [IA multi model] passe en bleu. Cliquer [restart MM] lance les épisodes.
+        """
         if self._loading_progress is not None:
-            return   # chargement déjà en cours
+            return
         root = tkinter.Tk()
         root.withdraw()
         root.attributes("-topmost", True)
@@ -482,12 +537,30 @@ class GameUI:
         root.destroy()
         if not run_dir_str:
             return
-        # Passer en mode multi : effacer l'état simple-model
-        self._ai_net   = None
-        self._ai_trail = None
-        self._ai_run_dir      = Path(run_dir_str)
-        self._ai_optimal_path = self._state.optimal_path   # capturé avant le thread
-        self._load_multi(self._ai_run_dir, self._current_seed)
+        # Passer en mode multi : effacer état simple
+        self._ai_net          = None
+        self._ai_trail        = None
+        self._ai_trails       = []
+        self._ai_nets_cache   = []
+        self._anim_idx        = -1
+        self._ai_optimal_path = None
+        self._ai_stats        = None
+        self._ai_run_dir = Path(run_dir_str)
+        self._mm_loaded  = True
+        self._sm_loaded  = False
+
+    def _restart_mm(self) -> None:
+        """Lance ou relance les tracés de tous les modèles multi chargés."""
+        if not self._mm_loaded or self._loading_progress is not None:
+            return
+        self._ai_trails       = []
+        self._anim_idx        = -1
+        self._ai_optimal_path = self._state.optimal_path
+        self._ai_stats        = None
+        if self._ai_nets_cache:
+            self._rerun_from_cache(self._current_seed)
+        elif self._ai_run_dir is not None:
+            self._load_multi(self._ai_run_dir, self._current_seed)
 
     def _load_multi(self, run_dir: Path, seed: int | None) -> None:
         """Lance le chargement de tous les checkpoints du run en thread de fond."""
@@ -597,50 +670,6 @@ class GameUI:
 
         threading.Thread(target=_rerun, daemon=True).start()
 
-    def _restart_ai_anim(self) -> None:
-        """Efface les trails visibles puis recalcule les trails pour le terrain courant.
-
-        Les trails orange et rouge sont effacés immédiatement avant le recalcul.
-        - Nets en cache → rejoue les épisodes sans relire le disque.
-        - run_dir connu, cache vide → rechargement complet depuis disque.
-        - Modèle simple → rejoue le modèle simple.
-        """
-        # Effacer immédiatement tous les trails visibles (orange + rouge)
-        self._ai_trail        = None
-        self._ai_trails       = []
-        self._ai_optimal_path = None
-        self._ai_stats        = None
-        self._anim_idx        = -1
-
-        if self._ai_nets_cache:
-            self._rerun_from_cache(self._current_seed)
-        elif self._ai_run_dir is not None:
-            self._load_multi(self._ai_run_dir, self._current_seed)
-        elif self._ai_net is not None:
-            # Lance l'épisode en thread pour ne pas bloquer l'UI
-            self._loading_progress = 0.5   # loader indéterminé (épisode unique)
-            net     = self._ai_net
-            seed    = self._current_seed
-            optimal = self._state.optimal_path
-
-            def _run_simple_async() -> None:
-                try:
-                    from exploit import run_one_episode_info
-                    trail, won, score = run_one_episode_info(net, seed=seed)
-                    self._ai_trail        = trail
-                    self._ai_optimal_path = optimal
-                    self._ai_stats = {
-                        "wins":     1 if won else 0,
-                        "note_moy": score if won else 0,
-                        "total":    1,
-                    }
-                except Exception as exc:
-                    print(f"[IA restart] Erreur : {exc}")
-                finally:
-                    self._loading_progress = None   # retire le loader
-
-            threading.Thread(target=_run_simple_async, daemon=True).start()
-
     # ------------------------------------------------------------------
     def _handle_event(self, event: pygame.event.Event) -> None:
         if event.type == pygame.QUIT:
@@ -652,13 +681,16 @@ class GameUI:
                 self._reset()
                 return
             if self._ai_simple_rect.collidepoint(event.pos):
-                self._run_ai_simple()
+                self._load_ai_simple()
+                return
+            if self._restart_sm_rect.collidepoint(event.pos):
+                self._restart_sm()
                 return
             if self._ai_multi_rect.collidepoint(event.pos):
-                self._run_ai_multi()
+                self._load_ai_multi()
                 return
-            if self._ai_restart_rect.collidepoint(event.pos):
-                self._restart_ai_anim()
+            if self._restart_mm_rect.collidepoint(event.pos):
+                self._restart_mm()
                 return
             if self._seed_input_rect.collidepoint(event.pos):
                 self._seed_input_active = True

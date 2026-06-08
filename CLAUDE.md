@@ -255,10 +255,13 @@ python tools/migrate_models.py --dry-run   # prévisualisation
 python tools/migrate_models.py             # migration réelle
 ```
 
-**Boutons IA dans l'UI (ligne 2 du HUD bas) :**
-- `[IA simple model]` : file picker `.pt` → joue un épisode complet (epsilon=0) → tracé orange + chemin optimal rouge
-- `[IA multi model]` : directory picker `*_run/` → charge TOUS les checkpoints en thread de fond → animation 200ms/trail avec barre de progression → chemin optimal rouge en fin d'animation
-- `[IA restart]` : relance l'animation (trails présents) ou recalcule les trails sans relire le disque (nets en cache `_ai_nets_cache`), ou reload complet si cache vide ; réinitialise les stats avant chaque nouveau calcul
+**Boutons IA dans l'UI (refonte 2026-06-08) — HUD_TOP_H = 96px :**
+- Ligne 1 : `[Génération terrain]` + `Seed:[input]` + stats jeu + touches (sans "déplacer")
+- Ligne 2 : `[IA simple model]` (blanc→bleu après chargement) + `[restart SM]` (grisé→cyan)
+- Ligne 3 : `[IA multi model]` (blanc→bleu après chargement) + `[restart MM]` (grisé→cyan)
+- Ligne 4 : barre de chargement 8px
+
+Séparation load / run : les boutons load chargent uniquement le modèle (bouton → BLEU), les boutons restart déclenchent les épisodes. SM et MM sont mutuellement exclusifs (un seul bouton bleu à la fois).
 
 **Ligne 3 du HUD bas — statistiques IA :**
 Affichée sous les boutons IA : `Trail X/N   |   Victoires : Y/N   |   Note moy : ZZ`

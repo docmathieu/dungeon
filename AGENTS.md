@@ -364,10 +364,18 @@ Tests : `tests/test_exploit.py` (55 tests)
 - Supporte les checkpoints DQN (`.pt`) et PPO (`.zip`) dans le même run
 - Tri numérique : `ep{N}.pt` et `ppo_{N}_steps.zip` → N, `final.*` → +∞
 
-**Boutons IA dans l'UI (ligne 3 du HUD_TOP, sous le champ seed) :**
-- `[IA simple model]` : file picker acceptant `.pt` et `.zip` → joue un épisode, affiche trail orange + chemin rouge
-- `[IA multi model]` : directory picker `*_run/` → charge TOUS les checkpoints (DQN et/ou PPO) en thread de fond → animation incrémentale 200ms/trail + barre de progression
-- `[IA restart]` : efface trails orange+rouge, rejoue le(s) modèle(s) chargé(s) sur le terrain courant depuis le cache
+**Boutons IA dans l'UI (HUD_TOP_H=96, lignes 1–4) :**
+
+- Ligne 1 : `[Génération terrain]` + `Seed:[input]` + stats jeu + touches (sans "déplacer")
+- Ligne 2 : `[IA simple model]` (blanc→bleu) + `[restart SM]` (grisé→cyan) + stats simple
+- Ligne 3 : `[IA multi model]` (blanc→bleu) + `[restart MM]` (grisé→cyan) + stats multi
+- Ligne 4 : barre de chargement 8px (si loading)
+
+Comportement :
+- `[IA simple model]` : file picker `.pt`/`.zip` → charge le modèle uniquement → bouton BLEU. Mutuellement exclusif avec MM.
+- `[restart SM]` : joue un épisode sur le terrain courant. Grisé si modèle non chargé. "Calcul..." pendant l'épisode.
+- `[IA multi model]` : directory picker `*_run/` → mémorise le dossier → bouton BLEU. Mutuellement exclusif avec SM.
+- `[restart MM]` : lance tous les checkpoints sur le terrain courant (cache si dispo, sinon disque). Grisé si non chargé.
 
 ---
 
