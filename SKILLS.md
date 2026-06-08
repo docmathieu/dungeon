@@ -233,30 +233,52 @@ PathFinder réutilisé (`_pf` = instance unique) — recalcul uniquement sur dé
     --checkpoint models/.../final.zip --seeds 100-499
 ```
 
-**Résultat (400 seeds, Run 7) :**
+**Résultat Run 8 (400 seeds 100–499) :**
 
-| Groupe | Win rate |
-|--------|---------|
-| Facile (coût 1–8) | 96.9% |
-| Rochers (coût 9–12) | 81.4% |
-| Mixte (coût 13–16) | 68.9% |
-| Complexe (coût 17–20) | 25.8% |
-| Difficile (coût 21+) | 5.9% |
-
-Le modèle échoue sur les chemins longs avec beaucoup de détours/eau — problème de planification
-longue distance. Le reward shaping Dijkstra vise directement ce problème.
+| Groupe | Run 7 | Run 8 |
+|--------|-------|-------|
+| Facile (coût 1–8) | 96.9% | 95.9% |
+| Rochers (9–12) | 81.4% | 77.3% |
+| Mixte (13–16) | 68.9% | 62.3% |
+| Complexe (17–20) | 25.8% | 19.4% |
+| Difficile (21+) | **5.9%** | **11.8%** |
 
 ---
 
-## Prochaine étape : Full random seeds
+## Bilan Run 8 + Fin de l'entraînement (2026-06-08) ✅
 
+Run 8 : PPO CNN full-random +5M ts (40M cumulés), avec Dijkstra reward shaping.
+
+| Métrique | Run 6 ← meilleur | Run 7 | Run 8 |
+|---|---|---|---|
+| Det seeds inconnus | **85.0%** | 81.0% | 76.8% |
+| Stoch ×3 inconnus | **90.0%** | 89.5% | 89.2% |
+| Win rate online | — | 82–97% oscillant | **92% constant** |
+
+**Conclusions :**
+- Dijkstra shaping stabilise l'entraînement (92% stable vs oscillations) mais ne casse pas le plateau
+- Plateau structurel ~77–85% det : limite de planification longue distance du CNN sans mémoire
+- **Entraînement arrêté** — objectif 80% det atteint au Run 6 (30M ts)
+
+**Meilleur modèle :** Run P8 (20260605_1600, 30M ts) — 85% det / 90% stoch
 ```bash
-.venv\Scripts\python.exe src\train_ppo.py --timesteps 2000000 --architecture cnn
-# (sans --seed ni --seed-pool → nouveau terrain à chaque épisode)
+gh release download v1.0 --pattern "model-ppo-cnn-30M-final.zip" --dir models/
 ```
 
-Forcer la diversité maximale : l'agent ne peut pas mémoriser, il **doit** apprendre une stratégie.
-Métrique clé : win rate sur seeds 100–299 (déterministe + stochastique).
+---
+
+## Documentation (2026-06-08) ✅
+
+Dossier `docs/` créé. `README.md` allégé.
+
+| Fichier | Contenu |
+|---------|---------|
+| `docs/start.md` ⭐ | Guide complet développeur — **commencer ici** |
+| `docs/01-runs.md` | Historique tous les runs DQN + PPO avec dates |
+| `docs/02-architecture.md` | Architecture CNN finale : ~170k params, ~2937 neurones, parallèle biologique |
+| `docs/03-librairies.md` | 7 librairies + focus code |
+| `docs/04-technologies-ia.md` | Algorithmes DQN/PPO, architectures MLP/CNN/FiLM |
+| `docs/05-interface.md` | Référence UI complète |
 
 ---
 

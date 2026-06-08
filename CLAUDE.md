@@ -14,8 +14,8 @@ Ce POC est la première étape vers un système d'**apprentissage par renforceme
 ## Stack technique
 - **Python** : 3.12 (LTS-équivalent, supporté jusqu'en 2028)
 - **Graphique** : pygame (SDL2)
-- **RL (à venir)** : PyTorch + Stable-Baselines3
-- **Tests** : pytest (249 tests, 0 échec)
+- **RL** : PyTorch + Stable-Baselines3 ✅ (PPO CNN full-random, 85% det seeds inconnus à 30M ts)
+- **Tests** : pytest (362 tests, 0 échec)
 - **Exécutable** : PyInstaller
 
 ## Structure du projet
@@ -24,7 +24,15 @@ dungeon/claude/
 ├── CLAUDE.md
 ├── AGENTS.md
 ├── SKILLS.md
+├── README.md             ← portail : résumé + liens docs/
 ├── requirements.txt
+├── docs/                 ← documentation complète (voir section Documentation)
+│   ├── start.md          ← ⭐ point d'entrée développeur
+│   ├── 01-runs.md
+│   ├── 02-architecture.md
+│   ├── 03-librairies.md
+│   ├── 04-technologies-ia.md
+│   └── 05-interface.md
 ├── .claude/
 │   └── skills/
 │       ├── generate-game.md
@@ -41,23 +49,27 @@ dungeon/claude/
 │   ├── grid.py           ← TileType, Grid
 │   ├── game_state.py     ← GameState, logique déplacement, scoring, trail
 │   ├── pathfinder.py     ← PathFinder (Dijkstra pondéré)
-│   ├── dungeon_env.py    ← DungeonEnv : interface Gym reset()/step() (Phase 1 RL)
-│   ├── model.py          ← DQNetwork MLP 304→128→64→4 (Phase 2 RL)
-│   ├── train.py          ← boucle DQN, ReplayBuffer, DQNAgent, logs JSON (Phase 2 RL)
-│   ├── curriculum.py     ← curriculum progressif par étapes de seeds (Phase 2 RL)
-│   ├── exploit.py        ← load_net(), run_one_episode(), scan_run_dir() (Phase 3 RL)
-│   └── ui.py             ← GameUI, rendu pygame, [IA simple model] [IA multi model] [IA restart]
+│   ├── dungeon_env.py    ← DungeonEnv : interface Gym reset()/step(), Dijkstra reward shaping
+│   ├── model.py          ← ObsDQNetwork, DQNetwork, FiLMDQNetwork (DQN)
+│   ├── train.py          ← boucle DQN, ReplayBuffer, StratifiedReplayBuffer, DQNAgent
+│   ├── curriculum.py     ← curriculum progressif par étapes de seeds (DQN)
+│   ├── exploit.py        ← load_model(), run_one_episode_info(), scan_run_dir() (DQN+PPO)
+│   ├── train_ppo.py      ← PPO SB3, DungeonGymEnv, DungeonCnnExtractor, LogCallback
+│   ├── run_utils.py      ← _now(), _pretrained_label() partagés
+│   └── ui.py             ← GameUI, sprites PNG, HUD, boutons IA simple/multi
 ├── tools/
 │   └── migrate_models.py ← migration dossiers existants vers structure *_run/
 └── tests/
-    ├── conftest.py        ← sys.path setup
+    ├── conftest.py
     ├── helpers.py         ← FakeGrid partagée
-    ├── test_game.py       ← tests Grid, GameState, scoring, trail
-    ├── test_pathfinder.py  ← tests PathFinder
-    ├── test_dungeon_env.py ← tests DungeonEnv
-    ├── test_train.py       ← tests encode_obs, ReplayBuffer, DQNetwork, DQNAgent
-    ├── test_curriculum.py  ← tests _win_rate, _train_stage, run_curriculum
-    └── test_exploit.py     ← tests load_net, run_one_episode, scan_run_dir
+    ├── test_game.py
+    ├── test_pathfinder.py
+    ├── test_dungeon_env.py
+    ├── test_train.py
+    ├── test_curriculum.py
+    ├── test_exploit.py
+    ├── test_train_ppo.py
+    └── test_evaluate.py
 ```
 
 ## Spécification du jeu
@@ -811,4 +823,60 @@ jamais vus, avec un score moyen de 94.8 (chemin quasi-optimal). En mode stochast
 15. **PPO CNN full-random +5M ts ✅ — 85.0% det, 90.0% stoch** (run 1600, 30M ts cumulés) ← objectif atteint
 16. **PPO CNN full-random +5M ts ✅ — 81.0% det, 89.5% stoch** (run 0922, 35M ts cumulés) — plateau confirmé
 17. **Dijkstra reward shaping ✅** — `REWARD_PROGRESS_SCALE=0.10` dans `dungeon_env.py`
-18. **Lancer Run 8 avec reward shaping** ← prochaine étape
+18. **PPO CNN full-random +5M ts ✅ — 76.8% det, 89.2% stoch** (run 1406, 40M ts cumulés) — Dijkstra shaping, plateau confirmé
+19. **Fin de l'apprentissage** — plateau structurel ~77–85% det atteint, entraînement arrêté
+
+---
+
+## Session 2026-06-08 (suite) — Run 8, documentation, release
+
+### Run 8 — PPO CNN + Dijkstra reward shaping +5M ts (40M cumulés)
+- Dossier : `models/20260608_1406_run/20260608_1406_ppo_random_cnn_ts5000000_from_20260608_0922/`
+- Win rate online : **92% stable** sur 294k épisodes — plus stable que Run 7 (82–97% fluctuant)
+
+| Métrique | Run 7 (35M ts) | Run 8 (40M ts) |
+|---|---|---|
+| Det seeds inconnus 100–499 | **81.0%** | 76.8% |
+| Stoch ×3 seeds inconnus | **89.5%** | 89.2% |
+| Score moy wins (det) | **95.9** | 94.8 |
+
+**Conclusion Run 8 :** le Dijkstra reward shaping stabilise l'entraînement (92% constant vs oscillations)
+mais ne casse pas le plateau. Légère régression en déterministe (−4 pts). Fin de l'expérimentation.
+
+### Analyse par difficulté Run 8 (400 seeds 100–499)
+
+| Groupe | Run 7 | Run 8 |
+|--------|-------|-------|
+| Facile (1–8) | 96.9% | 95.9% |
+| Rochers (9–12) | 81.4% | 77.3% |
+| Mixte (13–16) | 68.9% | 62.3% |
+| Complexe (17–20) | 25.8% | 19.4% |
+| Difficile (21+) | **5.9%** | **11.8%** |
+
+Intéressant : Run 8 est meilleur sur les terrains les plus difficiles (+6 pts) mais pire sur les intermédiaires.
+
+### Documentation (2026-06-08)
+
+Dossier `docs/` créé avec 6 fichiers autonomes :
+- `docs/start.md` ⭐ — guide complet développeur (setup, UI, entraînement, évaluation, tests, exe)
+- `docs/01-runs.md` — historique tous les runs DQN + PPO avec dates
+- `docs/02-architecture.md` — architecture finale, comptage neurones (~170k params, ~2937 neurones), parallèle biologique, schéma
+- `docs/03-librairies.md` — 7 librairies + focus code par lib
+- `docs/04-technologies-ia.md` — algorithmes DQN/PPO, architectures MLP/CNN/FiLM
+- `docs/05-interface.md` — référence complète UI (HUD, trails, boutons)
+
+`README.md` allégé : résumé + résultats + lien mis en valeur vers `docs/start.md`.
+
+### Release GitHub v1.0 (2026-06-08)
+
+Modèle final (Run P8, 85% det) publié comme asset de release — les binaires ne sont pas dans git.
+
+```bash
+# Télécharger le modèle
+gh release download v1.0 --pattern "model-ppo-cnn-30M-final.zip" --dir models/
+
+# Publier un nouveau modèle
+gh release create v1.1 "models/.../final.zip#nom.zip" --title "..." --notes "..."
+```
+
+URL : https://github.com/docmathieu/dungeon/releases/tag/v1.0

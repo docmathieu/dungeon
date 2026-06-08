@@ -481,6 +481,36 @@ et win rate par tranche de difficulté.
 
 ---
 
+---
+
+## Bilan final RL (2026-06-08) — Entraînement terminé
+
+### Résultats Run 8 (40M ts cumulés, Dijkstra reward shaping)
+
+| Métrique | Run 6 (30M, objectif) | Run 7 (35M) | Run 8 (40M) |
+|---|---|---|---|
+| Det seeds inconnus 100–499 | **85.0%** | 81.0% | 76.8% |
+| Stoch ×3 seeds inconnus | **90.0%** | 89.5% | 89.2% |
+| Win rate online | stable | 82–97% | **92% constant** |
+
+Dijkstra reward shaping stabilise l'entraînement mais ne casse pas le plateau structurel.
+**Décision : arrêt de l'entraînement.** Plateau ~77–85% det atteint et documenté.
+
+### Meilleur modèle disponible
+- **Run P8 (30M ts)** : 85% det / 90% stoch seeds inconnus
+- Disponible en release GitHub v1.0 : `gh release download v1.0 --pattern "model-ppo-cnn-30M-final.zip" --dir models/`
+- Voir `docs/start.md` pour l'utilisation complète
+
+### Limite architecturale résiduelle
+
+Le CNN sans mémoire ne peut pas planifier sur 15+ mouvements :
+- Facile (coût ≤8) : 95% win rate ✅
+- Difficile (coût 21+) : 11% win rate — planification longue distance non résolue
+
+Pistes non testées pour briser le plateau : Attention/Transformer, Model-based RL.
+
+---
+
 ### `analyze/search_seeds.py`
 **Objectif** : trouver 20 seeds pédagogiquement intéressants pour le curriculum RL.
 
